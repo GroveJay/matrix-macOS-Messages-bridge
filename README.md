@@ -12,6 +12,19 @@ A Matrix macOS Messages puppeting bridge.
   * Android (deprecated in favor of mautrix-gmessages)
 * [beeper-imessage](https://github.com/beeper/imessage) - Deprecated/Archived
 
+### NSAttributedString
+
+Kinda crazy we're still stuck with stuff from NextStep
+
+Primary implementation of decoding NSAttributedString/typedstream/streamtyped from [ReagentX/immessage-exporter](https://github.com/ReagentX/imessage-exporter) and further documented in an extensive write-up [here](https://chrissardegna.com/blog/reverse-engineering-apples-typedstream-format/)
+
+Other implementations:
+
+* [python-typedstream](https://github.com/dgelessus/python-typedstream/tree/main/src/typedstream) (partial implementation, but probably workable)
+* [BlueBubbles/node-typedstream](https://github.com/BlueBubblesApp/node-typedstream/blob/master/src/stream.ts) (probably entirely workable since they're doing what we're doing)
+* meowUnsafeDecodeAttributedString from mautrix-imessage (calls out to ObjectiveC and throws away a lot of data in the macOS code path)
+* [yakuter/nsattrparser](https://github.com/yakuter/nsattrparser/blob/main/nsattrparser.go) (surface level string grab)
+
 ## Architectural Decisions
 
 The three main reasons for this bridge were:
