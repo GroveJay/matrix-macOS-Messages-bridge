@@ -160,6 +160,13 @@ func test_parse_all_messages() {
 	}
 }
 
+func test_parse_phone_number() {
+	stdout := ""
+	formattedPhoneNumber, err := macos.ParseFormatPhoneNumber(stdout, "US")
+	checkError(err)
+	println(fmt.Sprintf("got phone: %s", *formattedPhoneNumber))
+}
+
 func main() {
-	test_parse_all_messages()
+	test_parse_phone_number()
 }

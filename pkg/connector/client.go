@@ -36,24 +36,29 @@ func (m *MessagesClient) Connect(ctx context.Context) {
 	var err error
 	meta := m.UserLogin.Metadata.(*UserLoginMetadata)
 	userID := meta.UserID
+	m.UserLogin.Log.Info().Msgf("Starting login for userID %s", userID)
 	if m.MacOSMessagesClient, err = macos.GetMessagesClient(userID, &m.UserLogin.Log); err != nil {
 		m.UserLogin.BridgeState.Send(status.BridgeState{
 			StateEvent: status.StateBadCredentials,
 			Error:      "macos-messages-connect-messages-client",
-			Message:    "Failed to create messages connection",
+			Message:    fmt.Sprintf("Failed to create messages connection: %v", err),
 			Info:       map[string]any{},
 		})
 		return
 	}
+	m.UserLogin.Log.Info().Msgf("Got Messages Client for userID %s", userID)
+
 	if m.MacOSContactsClient, err = macos.GetContactsClient(userID); err != nil {
 		m.UserLogin.BridgeState.Send(status.BridgeState{
 			StateEvent: status.StateBadCredentials,
 			Error:      "macos-messages-connect-contacts-client",
-			Message:    "Failed to create contacts connection",
+			Message:    fmt.Sprintf("Failed to create contacts connection: %v", err),
 			Info:       map[string]any{},
 		})
 		return
 	}
+	m.UserLogin.Log.Info().Msgf("Got Contacts Client for userID %s", userID)
+
 	if err := m.MacOSContactsClient.ValidateConnection(); err != nil {
 		m.UserLogin.BridgeState.Send(status.BridgeState{
 			StateEvent: status.StateBadCredentials,
@@ -63,6 +68,8 @@ func (m *MessagesClient) Connect(ctx context.Context) {
 		})
 		return
 	}
+	m.UserLogin.Log.Info().Msgf("Validated Contacts Client for userID %s", userID)
+
 	if err := m.MacOSMessagesClient.ValidateConnection(); err != nil {
 		m.UserLogin.BridgeState.Send(status.BridgeState{
 			StateEvent: status.StateBadCredentials,
@@ -72,6 +79,7 @@ func (m *MessagesClient) Connect(ctx context.Context) {
 		})
 		return
 	}
+	m.UserLogin.Log.Info().Msgf("Validated Messages Client for userID %s", userID)
 
 	m.MessagesDBWatcherStopChannel = make(chan struct{}, 1)
 	m.HandleMessagesStopChannel = make(chan struct{}, 1)
@@ -88,6 +96,8 @@ func (m *MessagesClient) Connect(ctx context.Context) {
 		})
 		return
 	}
+	m.UserLogin.Log.Info().Msgf("Created fs watcher for userID %s", userID)
+
 	err = watcher.Add(filepath.Dir(m.MacOSMessagesClient.GetChatDBPath()))
 	if err != nil {
 		m.UserLogin.BridgeState.Send(status.BridgeState{
@@ -98,6 +108,7 @@ func (m *MessagesClient) Connect(ctx context.Context) {
 		})
 		return
 	}
+	m.UserLogin.Log.Info().Msgf("Added chat DB to fs watcher for userID %s", userID)
 
 	initialMaxMessagesTimestamp, err := m.MacOSMessagesClient.GetMaxMessagesTime()
 	if err != nil {
@@ -109,6 +120,7 @@ func (m *MessagesClient) Connect(ctx context.Context) {
 		})
 		return
 	}
+	m.UserLogin.Log.Info().Msgf("Gt maximum messages time for userID %s", userID)
 
 	go func() {
 		defer watcher.Close()
@@ -124,9 +136,11 @@ func (m *MessagesClient) Connect(ctx context.Context) {
 	}()
 
 	go m.handleMessagesLoop()
+	m.UserLogin.Log.Info().Msgf("Started handle message loop and db fs watcher for userID %s", userID)
 }
 
 func (m *MessagesClient) Disconnect() {
+	m.UserLogin.Log.Info().Msgf("Disconnecting login for userID %s", m.UserLogin.ID)
 	m.MessagesDBWatcherStopChannel <- struct{}{}
 	m.HandleMessagesStopChannel <- struct{}{}
 }
