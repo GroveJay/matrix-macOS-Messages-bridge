@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/GroveJay/matrix-macOS-Messages-bridge/pkg/macos"
 	"maunium.net/go/mautrix/bridgev2"
@@ -45,9 +46,10 @@ func (m *MessagesLogin) Start(ctx context.Context) (*bridgev2.LoginStep, error) 
 		return nil, fmt.Errorf("error getting user contact phone number: %w\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
 	}
 	// TODO: remove US assumption?
-	formattedPhoneNumber, err := macos.ParseFormatPhoneNumber(stdout, "US")
+	maybePhone := strings.TrimSuffix(stdout, "\n")
+	formattedPhoneNumber, err := macos.ParseFormatPhoneNumber(maybePhone, "US")
 	if err != nil {
-		return nil, fmt.Errorf("error parsing phone number (%s): %w", stdout, err)
+		return nil, fmt.Errorf("error parsing phone number (%s): %w", maybePhone, err)
 	}
 	return &bridgev2.LoginStep{
 		Type:         bridgev2.LoginStepTypeUserInput,
