@@ -315,7 +315,7 @@ func (m *MessagesClient) QueueRemoteEventWrapper(evt bridgev2.RemoteEvent) {
 			}
 
 			if asMessageEvent.ConvertMessageFunc != nil {
-				if len(asMessageEvent.Data.CombinedComponents) > 1 {
+				if len(asMessageEvent.Data.CombinedComponents) > 1 || asMessageEvent.Data.Subject != "" {
 					m.UserLogin.Log.Info().Msgf("original:\n%s", asMessageEvent.Data)
 					convertResult, err := asMessageEvent.ConvertMessageFunc(context, portal, &macos.MockMatrixAPI{}, asMessageEvent.Data)
 					if err != nil {
@@ -533,7 +533,7 @@ func (m *MessagesClient) HandleName(message *macos.Message) {
 		},
 		ChatInfoChange: &bridgev2.ChatInfoChange{
 			ChatInfo: &bridgev2.ChatInfo{
-				Name: &message.NewGroupName,
+				Name: &message.NewGroupTitle,
 			},
 		},
 	})

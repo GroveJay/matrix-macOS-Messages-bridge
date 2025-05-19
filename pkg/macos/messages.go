@@ -297,23 +297,151 @@ func (c *MacOSMessagesClient) getGroupMembers(chatID string) (users []networkid.
 	return users, nil
 }
 
+func OS16Scan(res *sql.Rows, message *Message, attributedBody *[]byte, messageSummaryInfo *[]byte, tapback *Tapback, threadOriginatorPartString *string) error {
+	var dummyText sql.NullString
+	var dummyInt sql.NullInt64
+	var dummyBlob []byte
+
+	var messageText sql.NullString
+	var messageSubject sql.NullString
+	var newGroupTitle sql.NullString
+	var threadOriginatorGUID sql.NullString
+	var threadOriginatorPart sql.NullString
+	var balloonBundleID sql.NullString
+	var senderLocalID sql.NullString
+	var senderService sql.NullString
+	var targetLocalID sql.NullString
+	var targetService sql.NullString
+	var tapbackTargetGUID sql.NullString
+	var tapbackEmoji sql.NullString
+
+	err := res.Scan(
+		&message.RowID, &message.GUID, &messageText, &dummyInt, &dummyText, &dummyInt, &messageSubject, &dummyText, attributedBody, &dummyInt,
+		&dummyInt, &dummyText, &dummyText, &dummyText, &dummyInt, &message.Date, &message.DateRead, &dummyInt, &message.IsDelivered, &dummyInt,
+		&message.IsEmote, &message.IsFromMe, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &message.IsSent, &dummyInt,
+		&dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyText, &dummyInt, &dummyInt, &message.IsAudioMessage, &dummyInt,
+		&dummyInt, &message.ItemType, &dummyInt, &newGroupTitle, &message.GroupActionType, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt,
+		&dummyInt, &tapbackTargetGUID, &tapback.Type, &balloonBundleID, &dummyBlob, &dummyText, &dummyInt, &dummyInt, &dummyInt, messageSummaryInfo,
+		&dummyInt, &dummyText, &dummyText, &dummyText, &dummyInt, &dummyText, &dummyText, &dummyInt, &dummyText, &dummyInt,
+		&dummyInt, &dummyInt, &threadOriginatorGUID, &threadOriginatorPart, &dummyText, &dummyInt, &dummyInt, &dummyText, &message.DateRetracted, &message.DateEdited,
+		&dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyText, &dummyInt, &dummyText, &tapbackEmoji, &dummyInt,
+		&dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt,
+		&message.ChatGUID, &message.ThreadID, &senderLocalID, &senderService, &targetLocalID, &targetService,
+	)
+	if err == nil {
+		messageStringFields := map[*string]sql.NullString{
+			&message.Text:              messageText,
+			&message.NewGroupTitle:     newGroupTitle,
+			&message.Subject:           messageSubject,
+			&message.ReplyToGUID:       threadOriginatorGUID,
+			&message.BalloonBundleID:   balloonBundleID,
+			&message.Sender.LocalID:    senderLocalID,
+			&message.Sender.Service:    senderService,
+			&message.Target.LocalID:    targetLocalID,
+			&message.Target.Service:    targetService,
+			&tapback.TargetGUID:        tapbackTargetGUID,
+			&tapback.Emoji:             tapbackEmoji,
+			threadOriginatorPartString: threadOriginatorPart,
+		}
+		for field, value := range messageStringFields {
+			if value.Valid {
+				*field = value.String
+			}
+		}
+	}
+	return err
+}
+
+func OS14Scan(res *sql.Rows, message *Message, attributedBody *[]byte, messageSummaryInfo *[]byte, tapback *Tapback, threadOriginatorPartString *string) error {
+	var dummyText sql.NullString
+	var dummyInt sql.NullInt64
+	var dummyBlob []byte
+
+	var messageText sql.NullString
+	var messageSubject sql.NullString
+	var newGroupTitle sql.NullString
+	var threadOriginatorGUID sql.NullString
+	var threadOriginatorPart sql.NullString
+	var balloonBundleID sql.NullString
+	var senderLocalID sql.NullString
+	var senderService sql.NullString
+	var targetLocalID sql.NullString
+	var targetService sql.NullString
+	var tapbackTargetGUID sql.NullString
+
+	err := res.Scan(
+		&message.RowID, &message.GUID, &messageText, &dummyInt, &dummyText, &dummyInt, &messageSubject, &dummyText, attributedBody, &dummyInt,
+		&dummyInt, &dummyText, &dummyText, &dummyText, &dummyInt, &message.Date, &message.DateRead, &dummyInt, &message.IsDelivered, &dummyInt,
+		&message.IsEmote, &message.IsFromMe, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &message.IsSent, &dummyInt,
+		&dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyText, &dummyInt, &dummyInt, &message.IsAudioMessage, &dummyInt,
+		&dummyInt, &message.ItemType, &dummyInt, &newGroupTitle, &message.GroupActionType, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt,
+		&dummyInt, &tapbackTargetGUID, &tapback.Type, &balloonBundleID, &dummyBlob, &dummyText, &dummyInt, &dummyInt, &dummyInt, messageSummaryInfo,
+		&dummyInt, &dummyText, &dummyText, &dummyText, &dummyInt, &dummyText, &dummyText, &dummyInt, &dummyText, &dummyInt,
+		&dummyInt, &dummyInt, &threadOriginatorGUID, &threadOriginatorPart, &dummyText, &dummyInt, &dummyInt, &dummyText, &message.DateRetracted, &message.DateEdited,
+		&dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyText, &dummyInt, &dummyText,
+		&message.ChatGUID, &message.ThreadID, &senderLocalID, &senderService, &targetLocalID, &targetService,
+	)
+	if err == nil {
+		messageStringFields := map[*string]sql.NullString{
+			&message.Text:              messageText,
+			&message.NewGroupTitle:     newGroupTitle,
+			&message.Subject:           messageSubject,
+			&message.ReplyToGUID:       threadOriginatorGUID,
+			&message.BalloonBundleID:   balloonBundleID,
+			&message.Sender.LocalID:    senderLocalID,
+			&message.Sender.Service:    senderService,
+			&message.Target.LocalID:    targetLocalID,
+			&message.Target.Service:    targetService,
+			&tapback.TargetGUID:        tapbackTargetGUID,
+			threadOriginatorPartString: threadOriginatorPart,
+		}
+		for field, value := range messageStringFields {
+			if value.Valid {
+				*field = value.String
+			}
+		}
+	}
+
+	return err
+}
+
+func GetScanFunctionForColumns(res *sql.Rows) (func(res *sql.Rows, message *Message, attributedBody *[]byte, messageSummaryInfo *[]byte, tapback *Tapback, threadOriginatorPartString *string) error, error) {
+	columns, err := res.Columns()
+	if err != nil {
+		err = fmt.Errorf("getting columns for query: %w", err)
+		return nil, err
+	}
+	// TODO: Actually check the columns are exactly as expected
+	// TODO: Move Magic Numbers
+	columnCount := len(columns)
+	if columnCount == (95 + 6) {
+		return OS16Scan, nil
+	} else if columnCount == (88 + 6) {
+		return OS14Scan, nil
+	} else {
+		return nil, fmt.Errorf("unrecognized column count (%d) in Message 'message' database", columnCount)
+	}
+}
+
 func (c *MacOSMessagesClient) parseMessages(res *sql.Rows) (messages []*Message, err error) {
+	scanFunction, err := GetScanFunctionForColumns(res)
+	if err != nil {
+		err = fmt.Errorf("getting row scan function: %w", err)
+	}
+
 	for res.Next() {
 		var message Message
 		var tapback Tapback
 		var attributedBody []byte
 		var messageSummaryInfo []byte
-		var newGroupTitle sql.NullString
+
 		var threadOriginatorPart string
-		err = res.Scan(&message.RowID, &message.GUID, &message.Date, &message.Subject, &message.Text, &attributedBody, &messageSummaryInfo,
-			&message.ChatGUID, &message.Sender.LocalID, &message.Sender.Service, &message.Target.LocalID, &message.Target.Service,
-			&message.IsFromMe, &message.DateRead, &message.IsDelivered, &message.IsSent, &message.IsEmote, &message.IsAudioMessage, &message.DateEdited, &message.DateRetracted,
-			&message.ReplyToGUID, &threadOriginatorPart, &tapback.TargetGUID, &tapback.Type, &tapback.Emoji,
-			&newGroupTitle, &message.ItemType, &message.GroupActionType, &message.ThreadID, &message.BalloonBundleID)
+		err = scanFunction(res, &message, &attributedBody, &messageSummaryInfo, &tapback, &threadOriginatorPart)
 		if err != nil {
-			err = fmt.Errorf("error scanning row: %w", err)
+			err = fmt.Errorf("scanning row: %w", err)
 			return
 		}
+
 		message.CreatedAt = time.Unix(AppleEpochUnix, message.Date)
 		if message.DateRead != 0 {
 			message.ReadAt = time.Unix(AppleEpochUnix, message.DateRead)
@@ -396,10 +524,6 @@ func (c *MacOSMessagesClient) parseMessages(res *sql.Rows) (messages []*Message,
 			}
 		}
 		err = nil
-
-		if newGroupTitle.Valid {
-			message.NewGroupName = newGroupTitle.String
-		}
 		if len(threadOriginatorPart) > 0 {
 			// The thread_originator_part field seems to have three parts separated by colons.
 			// The first two parts look like the part index, the third one is something else.

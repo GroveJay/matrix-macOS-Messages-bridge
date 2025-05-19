@@ -41,7 +41,7 @@ type Message struct {
 	ChatGUID           string
 	ReplyToGUID        string
 	ThreadID           string
-	NewGroupName       string
+	NewGroupTitle      string
 	BalloonBundleID    string
 
 	Sender Identifier

@@ -140,7 +140,7 @@ func test_parse_all_messages() {
 	checkError(err)
 	messagesClient, err := macos.GetMessagesClient("foobar", logger)
 	checkError(err)
-	// messages, err := messagesClient.GetMessagesBetween(33490, 33499)
+	//messages, err := messagesClient.GetMessagesBetween(33490, 33499)
 	messages, err := messagesClient.GetMessagesNewerThan(0)
 	checkError(err)
 	println(fmt.Sprintf("parsed %d messages", len(messages)))
@@ -168,5 +168,5 @@ func test_parse_phone_number() {
 }
 
 func main() {
-	test_parse_phone_number()
+	test_parse_all_messages()
 }
