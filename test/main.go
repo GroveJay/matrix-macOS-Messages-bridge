@@ -68,7 +68,7 @@ func test_get_chat_details() {
 	contactsMap, err := contactsClient.GetContactsMap()
 	checkError(err)
 	for ID := range chatMap {
-		chatID := networkid.PortalID(ID)
+		chatID := macos.MakeMessagesPortalID("foobar", ID)
 		println(ID)
 		chatName, avatar, err := messagesClient.GetChatDetails(chatID)
 		checkError(err)
@@ -92,7 +92,7 @@ func test_get_chat_details() {
 			}
 			memberStrings = append(memberStrings, nickName)
 			name := "Name: "
-			if v.UserInfo.Name != nil {
+			if v.UserInfo != nil && v.UserInfo.Name != nil {
 				name = name + *v.UserInfo.Name
 			}
 			memberStrings = append(memberStrings, name)
@@ -168,5 +168,5 @@ func test_parse_phone_number() {
 }
 
 func main() {
-	test_parse_all_messages()
+	test_get_chat_details()
 }

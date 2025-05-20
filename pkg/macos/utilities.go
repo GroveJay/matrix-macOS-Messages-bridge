@@ -20,17 +20,18 @@ import (
 )
 
 const FITNESS_RECEIVER = "$(kIMTranscriptPluginBreadcrumbTextReceiverIdentifier)"
+const PORTAL_ID_SEPARATOR = "|"
 
 var AppleEpoch = time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC)
 var AppleEpochUnix = AppleEpoch.Unix()
 var AppleEpochUnixNano = AppleEpoch.UnixNano()
 
 func MakeMessagesPortalID(userLoginID networkid.UserLoginID, chatGUID string) networkid.PortalID {
-	return networkid.PortalID(fmt.Sprintf("%s:%s:%s", "MessagesID", userLoginID, chatGUID))
+	return networkid.PortalID(strings.Join([]string{"MessagesID", string(userLoginID), chatGUID}, PORTAL_ID_SEPARATOR))
 }
 
 func ChatGUIDFromPortalID(portalID networkid.PortalID) string {
-	parts := strings.Split(string(portalID), ":")
+	parts := strings.Split(string(portalID), PORTAL_ID_SEPARATOR)
 	if len(parts) != 3 {
 		return ""
 	}
@@ -126,8 +127,11 @@ func FullName(firstName string, lastName string) string {
 }
 
 func ParseFormatPhoneNumber(phoneNumber string, countryCode string) (*networkid.UserID, error) {
+	if !strings.HasPrefix(phoneNumber, "+") {
+		phoneNumber = "+1" + phoneNumber
+	}
 	if num, err := phonenumbers.Parse(phoneNumber, countryCode); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parsing phone number [%s] and country code [%s]: %w", phoneNumber, countryCode, err)
 	} else {
 		userID := networkid.UserID(phonenumbers.Format(num, phonenumbers.E164))
 		return &userID, nil

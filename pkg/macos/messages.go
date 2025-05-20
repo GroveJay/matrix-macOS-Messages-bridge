@@ -89,7 +89,7 @@ func (c MacOSMessagesClient) GetChatDBPath() string {
 }
 
 func (c MacOSMessagesClient) GetChatMemberMap(chatID networkid.PortalID, selfUserID networkid.UserID) (map[networkid.UserID]bridgev2.ChatMember, error) {
-	if members, err := c.getGroupMembers(string(chatID)); err != nil {
+	if members, err := c.getGroupMembers(ChatGUIDFromPortalID(chatID)); err != nil {
 		return nil, err
 	} else {
 		membersMap := make(map[networkid.UserID]bridgev2.ChatMember)
@@ -294,12 +294,19 @@ func (c *MacOSMessagesClient) getGroupMembers(chatID string) (users []networkid.
 		} else if len(user) == 0 {
 			continue
 		}
+		if strings.Contains(user, "@") {
+			users = append(users, networkid.UserID(user))
+			continue
+		}
+		if strings.Contains(user, ":") {
+			users = append(users, networkid.UserID(user))
+			continue
+		}
 		if userID, err := ParseFormatPhoneNumber(user, country); err != nil {
 			return users, fmt.Errorf("error parsing user (%s): %w", user, err)
 		} else {
 			users = append(users, *userID)
 		}
-
 	}
 	return users, nil
 }

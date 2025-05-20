@@ -171,13 +171,6 @@ func (m *MessagesClient) GetChatInfo(ctx context.Context, portal *bridgev2.Porta
 		return nil, err
 	}
 
-	memberMap[networkid.UserID(m.UserLogin.ID)] = bridgev2.ChatMember{
-		Membership: event.MembershipJoin,
-		EventSender: bridgev2.EventSender{
-			IsFromMe: true,
-		},
-	}
-
 	contactsMap, err := m.MacOSContactsClient.GetContactsMap()
 	if err != nil {
 		m.UserLogin.Log.Error().Msgf("failed to get contacts: %s", err)
