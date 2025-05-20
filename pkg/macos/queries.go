@@ -98,7 +98,8 @@ WHERE date_read>$1 AND is_read=1
 `
 
 const AttachmentsQuery = `
-SELECT guid, COALESCE(filename, ''), COALESCE(mime_type, ''), transfer_name, is_sticker, sticker_user_info, COALESCE(emoji_image_short_description, '') FROM attachment
+SELECT attachment.*
+FROM attachment
 JOIN message_attachment_join ON message_attachment_join.attachment_id = attachment.ROWID
 WHERE message_attachment_join.message_id = $1
 ORDER BY ROWID

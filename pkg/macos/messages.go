@@ -297,7 +297,7 @@ func (c *MacOSMessagesClient) getGroupMembers(chatID string) (users []networkid.
 	return users, nil
 }
 
-func OS16Scan(res *sql.Rows, message *Message, attributedBody *[]byte, messageSummaryInfo *[]byte, tapback *Tapback, threadOriginatorPartString *string) error {
+func OS16MessagesScan(res *sql.Rows, message *Message, attributedBody *[]byte, messageSummaryInfo *[]byte, tapback *Tapback, threadOriginatorPartString *string) error {
 	var dummyText sql.NullString
 	var dummyInt sql.NullInt64
 	var dummyBlob []byte
@@ -352,7 +352,7 @@ func OS16Scan(res *sql.Rows, message *Message, attributedBody *[]byte, messageSu
 	return err
 }
 
-func OS14Scan(res *sql.Rows, message *Message, attributedBody *[]byte, messageSummaryInfo *[]byte, tapback *Tapback, threadOriginatorPartString *string) error {
+func OS14MessagesScan(res *sql.Rows, message *Message, attributedBody *[]byte, messageSummaryInfo *[]byte, tapback *Tapback, threadOriginatorPartString *string) error {
 	var dummyText sql.NullString
 	var dummyInt sql.NullInt64
 	var dummyBlob []byte
@@ -405,29 +405,127 @@ func OS14Scan(res *sql.Rows, message *Message, attributedBody *[]byte, messageSu
 	return err
 }
 
-func GetScanFunctionForColumns(res *sql.Rows) (func(res *sql.Rows, message *Message, attributedBody *[]byte, messageSummaryInfo *[]byte, tapback *Tapback, threadOriginatorPartString *string) error, error) {
+func GetMessagesScanFunctionForColumns(res *sql.Rows) (func(res *sql.Rows, message *Message, attributedBody *[]byte, messageSummaryInfo *[]byte, tapback *Tapback, threadOriginatorPartString *string) error, error) {
 	columns, err := res.Columns()
 	if err != nil {
-		err = fmt.Errorf("getting columns for query: %w", err)
+		err = fmt.Errorf("getting columns for messages query: %w", err)
 		return nil, err
 	}
 	// TODO: Actually check the columns are exactly as expected
 	// TODO: Move Magic Numbers
 	columnCount := len(columns)
 	if columnCount == (95 + 6) {
-		return OS16Scan, nil
+		return OS16MessagesScan, nil
 	} else if columnCount == (88 + 6) {
-		return OS14Scan, nil
+		return OS14MessagesScan, nil
 	} else {
 		return nil, fmt.Errorf("unrecognized column count (%d) in Message 'message' database", columnCount)
 	}
 }
 
-func (c *MacOSMessagesClient) parseMessages(res *sql.Rows) (messages []*Message, err error) {
-	scanFunction, err := GetScanFunctionForColumns(res)
+// SELECT guid, COALESCE(filename, ''), COALESCE(mime_type, ''), transfer_name, is_sticker, sticker_user_info, COALESCE(emoji_image_short_description, '')
+// err = ares.Scan(&attachment.GUID, &attachment.PathOnDisk, &attachment.MimeType, &attachment.FileName, &attachment.IsSticker, &stickerUserInfo, &attachment.EmojiImageShortDescription)
+/*
+20|sr_ck_sync_state|INTEGER|0|0|0
+21|sr_ck_server_change_token_blob|BLOB|0||0
+22|sr_ck_record_id|TEXT|0||0
+23|is_commsafety_sensitive|INTEGER|0|0|0
+24|emoji_image_content_identifier|TEXT|0|NULL|0
+25|emoji_image_short_description|TEXT|0|NULL|0
+26|preview_generation_state|INTEGER|0|0|0
+*/
+func OS16AttachmentScan(attachmentRows *sql.Rows) (Attachment, []byte, error) {
+	var attachment Attachment
+	var stickerUserInfo []byte
+
+	var dummyText sql.NullString
+	var dummyInt sql.NullInt64
+	var dummyBlob []byte
+
+	var filename sql.NullString
+	var mimeType sql.NullString
+	var emojiImageShortDescription sql.NullString
+
+	err := attachmentRows.Scan(
+		&dummyInt, &attachment.GUID, &dummyInt, &dummyInt, &filename, &dummyText, &mimeType, &dummyInt, &dummyInt, &dummyBlob,
+		&attachment.FileName, &dummyInt, &attachment.IsSticker, &stickerUserInfo, &dummyBlob, &dummyInt, &dummyInt, &dummyBlob, &dummyText, &dummyText,
+		&dummyInt, &dummyBlob, &dummyText, &dummyInt, &dummyText, &emojiImageShortDescription, &dummyInt,
+	)
 	if err != nil {
-		err = fmt.Errorf("getting row scan function: %w", err)
+		return attachment, stickerUserInfo, err
 	}
+
+	attachmentStringFields := map[*string]sql.NullString{
+		&attachment.PathOnDisk:                 filename,
+		&attachment.MimeType:                   mimeType,
+		&attachment.EmojiImageShortDescription: emojiImageShortDescription,
+	}
+	for field, value := range attachmentStringFields {
+		if value.Valid {
+			*field = value.String
+		}
+	}
+
+	return attachment, stickerUserInfo, nil
+}
+
+func OS14AttachmentScan(attachmentRows *sql.Rows) (Attachment, []byte, error) {
+	var attachment Attachment
+	var stickerUserInfo []byte
+
+	var dummyText sql.NullString
+	var dummyInt sql.NullInt64
+	var dummyBlob []byte
+
+	var filename sql.NullString
+	var mimeType sql.NullString
+
+	err := attachmentRows.Scan(
+		&dummyInt, &attachment.GUID, &dummyInt, &dummyInt, &filename, &dummyText, &mimeType, &dummyInt, &dummyInt, &dummyBlob,
+		&attachment.FileName, &dummyInt, &attachment.IsSticker, &stickerUserInfo, &dummyBlob, &dummyInt, &dummyInt, &dummyBlob, &dummyText, &dummyText,
+		&dummyInt, &dummyBlob, &dummyText, &dummyInt,
+	)
+	if err != nil {
+		return attachment, stickerUserInfo, err
+	}
+
+	attachmentStringFields := map[*string]sql.NullString{
+		&attachment.PathOnDisk: filename,
+		&attachment.MimeType:   mimeType,
+	}
+	for field, value := range attachmentStringFields {
+		if value.Valid {
+			*field = value.String
+		}
+	}
+
+	return attachment, stickerUserInfo, nil
+}
+
+func GetAttachmentsScanFunctionForColumns(attachmentRows *sql.Rows) (func(attachmentRows *sql.Rows) (attachment Attachment, stickerUserInfo []byte, err error), error) {
+	columns, err := attachmentRows.Columns()
+	if err != nil {
+		err = fmt.Errorf("getting columns for attachments query: %w", err)
+		return nil, err
+	}
+	// TODO: Actually check the columns are exactly as expected
+	// TODO: Move Magic Numbers
+	columnCount := len(columns)
+	if columnCount == 27 {
+		return OS16AttachmentScan, nil
+	} else if columnCount == 24 {
+		return OS14AttachmentScan, nil
+	} else {
+		return nil, fmt.Errorf("unrecognized column count (%d) in Message 'attachment' database", columnCount)
+	}
+}
+
+func (c *MacOSMessagesClient) parseMessages(res *sql.Rows) ([]*Message, error) {
+	messagesScanFunction, err := GetMessagesScanFunctionForColumns(res)
+	if err != nil {
+		return nil, fmt.Errorf("getting row scan function: %w", err)
+	}
+	messages := []*Message{}
 
 	for res.Next() {
 		var message Message
@@ -436,10 +534,9 @@ func (c *MacOSMessagesClient) parseMessages(res *sql.Rows) (messages []*Message,
 		var messageSummaryInfo []byte
 
 		var threadOriginatorPart string
-		err = scanFunction(res, &message, &attributedBody, &messageSummaryInfo, &tapback, &threadOriginatorPart)
+		err = messagesScanFunction(res, &message, &attributedBody, &messageSummaryInfo, &tapback, &threadOriginatorPart)
 		if err != nil {
-			err = fmt.Errorf("scanning row: %w", err)
-			return
+			return nil, fmt.Errorf("scanning row: %w", err)
 		}
 
 		message.CreatedAt = time.Unix(AppleEpochUnix, message.Date)
@@ -456,19 +553,20 @@ func (c *MacOSMessagesClient) parseMessages(res *sql.Rows) (messages []*Message,
 			message.IsRetracted = true
 		}
 		message.Attachments = make([]*Attachment, 0)
-		var ares *sql.Rows
-		ares, err = c.attachmentsQuery.Query(message.RowID)
+		attachmentRows, err := c.attachmentsQuery.Query(message.RowID)
 		if err != nil {
-			err = fmt.Errorf("error querying attachments for %d: %w", message.RowID, err)
-			return
+			return nil, fmt.Errorf("querying attachments for %d: %w", message.RowID, err)
 		}
-		for ares.Next() {
-			var attachment Attachment
-			var stickerUserInfo []byte
-			err = ares.Scan(&attachment.GUID, &attachment.PathOnDisk, &attachment.MimeType, &attachment.FileName, &attachment.IsSticker, &stickerUserInfo, &attachment.EmojiImageShortDescription)
+		var attachmentsScanFunction func(*sql.Rows) (Attachment, []byte, error)
+		attachmentsScanFunction, err = GetAttachmentsScanFunctionForColumns(attachmentRows)
+		if err != nil {
+			err = fmt.Errorf("getting Attachments scan function: %w", err)
+			return nil, err
+		}
+		for attachmentRows.Next() {
+			attachment, stickerUserInfo, err := attachmentsScanFunction(attachmentRows)
 			if err != nil {
-				err = fmt.Errorf("error scanning attachment row for %d: %w", message.RowID, err)
-				return
+				return nil, fmt.Errorf("error scanning attachment row for %d: %w", message.RowID, err)
 			}
 			if len(stickerUserInfo) > 0 {
 				plistDictionary := make(map[string]any, 0)
@@ -541,5 +639,5 @@ func (c *MacOSMessagesClient) parseMessages(res *sql.Rows) (messages []*Message,
 		}
 		messages = append(messages, &message)
 	}
-	return
+	return messages, nil
 }
