@@ -186,6 +186,13 @@ func (c *MacOSMessagesClient) GetMaxMessagesTime() (*int64, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch maximum message time: %w", err)
 	}
+	if !rows.Next() {
+		err = rows.Err()
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("no result getting maximum message time")
+	}
 	err = rows.Scan(&maxMessagesTimeSQL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to scan maximum message time: %w", err)
