@@ -115,15 +115,15 @@ func (c MacOSMessagesClient) GetChatMemberMap(chatID networkid.PortalID, selfUse
 }
 
 func (c *MacOSMessagesClient) GetChatDetails(chatID networkid.PortalID) (*string, *bridgev2.Avatar, error) {
-	stringChatID := string(chatID)
-	chatRow := c.chatQuery.QueryRow(stringChatID)
+	chatGUID := ChatGUIDFromPortalID(chatID)
+	chatRow := c.chatQuery.QueryRow(chatGUID)
 	var name string
 	if err := chatRow.Scan(&name); err != nil {
 		return nil, nil, err
 	} else if name == "" {
-		name = stringChatID
+		name = chatGUID
 	}
-	avatarRow := c.groupActionQuery.QueryRow(ItemTypeAvatar, GroupActionSetAvatar, stringChatID)
+	avatarRow := c.groupActionQuery.QueryRow(ItemTypeAvatar, GroupActionSetAvatar, chatGUID)
 	var fileName string
 	var mimeType string
 	var path string
@@ -139,7 +139,7 @@ func (c *MacOSMessagesClient) GetChatDetails(chatID networkid.PortalID) (*string
 		return &name, nil, err
 	}
 	avatar := &bridgev2.Avatar{
-		ID: networkid.AvatarID(fmt.Sprintf("%s-%s", stringChatID, fileName)),
+		ID: networkid.AvatarID(fmt.Sprintf("%s-%s", chatGUID, fileName)),
 		Get: func(ctx context.Context) ([]byte, error) {
 			return os.ReadFile(path)
 		},

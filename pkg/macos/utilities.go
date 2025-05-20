@@ -29,6 +29,14 @@ func MakeMessagesPortalID(userLoginID networkid.UserLoginID, chatGUID string) ne
 	return networkid.PortalID(fmt.Sprintf("%s:%s:%s", "MessagesID", userLoginID, chatGUID))
 }
 
+func ChatGUIDFromPortalID(portalID networkid.PortalID) string {
+	parts := strings.Split(string(portalID), ":")
+	if len(parts) != 3 {
+		return ""
+	}
+	return parts[2]
+}
+
 func RunOsascript(script string, args ...string) (string, string, error) {
 	args = append([]string{"-"}, args...)
 	cmd := exec.Command("osascript", args...)

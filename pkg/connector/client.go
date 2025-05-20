@@ -120,7 +120,7 @@ func (m *MessagesClient) Connect(ctx context.Context) {
 		})
 		return
 	}
-	m.UserLogin.Log.Info().Msgf("Gt maximum messages time for userID %s", userID)
+	m.UserLogin.Log.Info().Msgf("Got maximum messages time for userID %s", userID)
 
 	go func() {
 		defer watcher.Close()
