@@ -108,7 +108,17 @@ func (m *MessagesClient) Connect(ctx context.Context) {
 		})
 		return
 	}
-	m.UserLogin.Log.Info().Msgf("Added chat DB to fs watcher for userID %s", userID)
+	err = watcher.Add(filepath.Dir(m.MacOSMessagesClient.GetChatDBWALPath()))
+	if err != nil {
+		m.UserLogin.BridgeState.Send(status.BridgeState{
+			StateEvent: status.StateUnknownError,
+			Error:      "macos-messages-filewatcher-add-error",
+			Message:    fmt.Sprintf("failed to add chat DB WAL to fsnotify watcher: %v", err),
+			Info:       map[string]any{},
+		})
+		return
+	}
+	m.UserLogin.Log.Info().Msgf("Added chat DB and WAL to fs watcher for userID %s", userID)
 
 	initialMaxMessagesTimestamp, err := m.MacOSMessagesClient.GetMaxMessagesTime()
 	if err != nil {

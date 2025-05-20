@@ -66,10 +66,6 @@ WHERE message.item_type=$1 AND message.group_action_type=$2 AND chat.guid=$3
 ORDER BY message.date DESC LIMIT 1
 `
 
-const MaxMessagesRowQuery = `
-SELECT MAX(ROWID) FROM message
-`
-
 const MaxMessagesTimeQuery = `
 SELECT MAX(MAX(date), MAX(date_edited), MAX(date_retracted)) FROM message
 `

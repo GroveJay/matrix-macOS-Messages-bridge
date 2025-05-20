@@ -28,7 +28,6 @@ type MacOSMessagesClient struct {
 	groupMemberQuery       *sql.Stmt
 	chatQuery              *sql.Stmt
 	groupActionQuery       *sql.Stmt
-	maxMessagesRowQuery    *sql.Stmt
 	maxMessagesTimeQuery   *sql.Stmt
 	newMessagesQuery       *sql.Stmt
 	messagesNewerThanQuery *sql.Stmt
@@ -54,9 +53,6 @@ func GetMessagesClient(userName string, logger *zerolog.Logger) (*MacOSMessagesC
 	}
 	if client.groupActionQuery, err = client.chatDB.Prepare(GroupActionQuery); err != nil {
 		return nil, fmt.Errorf("failed to prepare group action query: %w", err)
-	}
-	if client.maxMessagesRowQuery, err = client.chatDB.Prepare(MaxMessagesRowQuery); err != nil {
-		return nil, fmt.Errorf("failed to prepare max messages row query: %w", err)
 	}
 	if client.maxMessagesTimeQuery, err = client.chatDB.Prepare(MaxMessagesTimeQuery); err != nil {
 		return nil, fmt.Errorf("failed to prepare max messages time query: %w", err)
@@ -86,6 +82,10 @@ func (c MacOSMessagesClient) ValidateConnection() error {
 
 func (c MacOSMessagesClient) GetChatDBPath() string {
 	return c.chatDBPath
+}
+
+func (c MacOSMessagesClient) GetChatDBWALPath() string {
+	return fmt.Sprintf("%s-wal", c.chatDBPath)
 }
 
 func (c MacOSMessagesClient) GetChatMemberMap(chatID networkid.PortalID, selfUserID networkid.UserID) (map[networkid.UserID]bridgev2.ChatMember, error) {
@@ -169,18 +169,6 @@ func (c *MacOSMessagesClient) GetAllChatIDsNames() (map[string]string, error) {
 		}
 	}
 	return chatMap, nil
-}
-
-func (c *MacOSMessagesClient) GetMaxMessagesRow() (*int, error) {
-	var lastRowIDSQL sql.NullInt32
-	err := c.maxMessagesRowQuery.QueryRow("SELECT MAX(ROWID) FROM message").Scan(&lastRowIDSQL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch last row ID: %w", err)
-	} else if !lastRowIDSQL.Valid {
-		return nil, fmt.Errorf("invalid last row ID")
-	}
-	lastRowInt := int(lastRowIDSQL.Int32)
-	return &lastRowInt, nil
 }
 
 func (c *MacOSMessagesClient) GetMaxMessagesTime() (*int64, error) {
