@@ -107,6 +107,9 @@ func (c MacOSMessagesClient) GetChatMemberMap(chatID networkid.PortalID, selfUse
 				EventSender: bridgev2.EventSender{
 					IsFromMe: true,
 				},
+				UserInfo: &bridgev2.UserInfo{
+					Identifiers: []string{},
+				},
 			}
 		}
 
