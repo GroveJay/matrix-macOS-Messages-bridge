@@ -616,7 +616,8 @@ func (m *MessagesClient) HandleiMessageReadReceipt(readReciept *macos.ReadReceip
 			Type:      bridgev2.RemoteEventReadReceipt,
 			Timestamp: readReciept.ReadAt,
 			PortalKey: networkid.PortalKey{
-				ID: networkid.PortalID(readReciept.ChatGUID),
+				ID:       macos.MakeMessagesPortalID(m.UserLogin.ID, readReciept.ChatGUID),
+				Receiver: m.UserLogin.ID,
 			},
 			Sender: bridgev2.EventSender{
 				IsFromMe:    readReciept.IsFromMe,

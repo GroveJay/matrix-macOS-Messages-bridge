@@ -276,13 +276,16 @@ func (m *Message) ConvertAttributesToMessagePart(attributes []TextRangeEffect, i
 		}
 	} else {
 		convertedMessagePart := &bridgev2.ConvertedMessagePart{
-			Type:    event.EventMessage,
-			Content: &event.MessageEventContent{},
+			Type: event.EventMessage,
+			Content: &event.MessageEventContent{
+				MsgType: event.MsgText,
+				Body:    template.HTMLEscapeString(m.AttributedBodyText),
+			},
 		}
 		formattedText := FormatTextRangeEffectsOnText(m.AttributedBodyText, attributes)
-		// If we failed to parse any text above, make sure we sanitize if before using it
+		// If we failed to parse any text above, make sure we sanitize it before using it
 		if formattedText == "" {
-			formattedText = template.HTMLEscapeString(m.AttributedBodyText)
+			formattedText = convertedMessagePart.Content.Body
 		}
 
 		if strings.HasPrefix(formattedText, FITNESS_RECEIVER) {
