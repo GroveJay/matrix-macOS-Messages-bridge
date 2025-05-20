@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -187,6 +188,23 @@ func (m *MessagesClient) GetChatInfo(ctx context.Context, portal *bridgev2.Porta
 		return nil, err
 	}
 	macos.SupplementMemberMapWithContactsMap(&memberMap, contactsMap, *m.MacOSContactsClient)
+
+	if *chatName == "" {
+		memberNames := []string{}
+		for _, chatMember := range memberMap {
+			memberNames = append(memberNames, *chatMember.UserInfo.Name)
+		}
+		*chatName = strings.Join(memberNames, ", ")
+	}
+
+	if len(memberMap) == 2 {
+		for _, chatMember := range memberMap {
+			if !chatMember.EventSender.IsFromMe {
+				avatar = chatMember.UserInfo.Avatar
+			}
+		}
+
+	}
 
 	return &bridgev2.ChatInfo{
 		Name:   chatName,

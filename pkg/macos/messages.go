@@ -123,9 +123,8 @@ func (c *MacOSMessagesClient) GetChatDetails(chatID networkid.PortalID) (*string
 	var name string
 	if err := chatRow.Scan(&name); err != nil {
 		return nil, nil, err
-	} else if name == "" {
-		name = chatGUID
 	}
+
 	avatarRow := c.groupActionQuery.QueryRow(ItemTypeAvatar, GroupActionSetAvatar, chatGUID)
 	var fileName string
 	var mimeType string
