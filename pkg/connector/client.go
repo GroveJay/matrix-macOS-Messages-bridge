@@ -451,17 +451,24 @@ func (m *MessagesClient) HandleEdit(message *macos.Message) {
 }
 
 func (m *MessagesClient) HandleNormalMessage(message *macos.Message) {
+	sender := networkid.UserID(message.Sender.LocalID)
+	portalKey := m.PortalKeyFromMessage(message)
 	m.QueueRemoteEventWrapper(&simplevent.Message[macos.Message]{
 		EventMeta: simplevent.EventMeta{
 			Sender: bridgev2.EventSender{
-				Sender:   networkid.UserID(message.Sender.LocalID),
+				Sender:   sender,
 				IsFromMe: message.IsFromMe,
 			},
 			Type: bridgev2.RemoteEventMessage,
 			LogContext: func(c zerolog.Context) zerolog.Context {
-				return c.Str("message_guid", message.GUID)
+				return c.
+					Str("message_guid", message.GUID).
+					Str("is_from_me", fmt.Sprintf("%t", message.IsFromMe)).
+					Str("sender", string(sender)).
+					Str("portalKey.ID", string(portalKey.ID)).
+					Str("portalKey.Receiver", string(portalKey.Receiver))
 			},
-			PortalKey:    m.PortalKeyFromMessage(message),
+			PortalKey:    portalKey,
 			CreatePortal: true,
 			Timestamp:    time.Now(),
 		},
