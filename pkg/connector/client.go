@@ -3,8 +3,11 @@ package connector
 import (
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +21,7 @@ import (
 	"maunium.net/go/mautrix/bridgev2/simplevent"
 	"maunium.net/go/mautrix/bridgev2/status"
 	"maunium.net/go/mautrix/event"
+	"maunium.net/go/mautrix/id"
 )
 
 type MessagesClient struct {
@@ -327,7 +331,8 @@ func (m *MessagesClient) QueueRemoteEventWrapper(evt bridgev2.RemoteEvent) {
 	if m.DryRun {
 		// m.UserLogin.Log.Info().Msgf("would send event: %s", evt.GetType())
 		if asMessageEvent, ok := evt.(*simplevent.Message[macos.Message]); ok {
-			// m.UserLogin.Log.Info().Msgf("simpleEvent.Message: %s: %s", evt.GetType(), asMessageEvent.Data)
+			m.UserLogin.Log.Info().Msgf("simpleEvent.Message type: %s: %s", evt.GetType(), asMessageEvent.Data)
+
 			context := context.TODO()
 			portal := &bridgev2.Portal{
 				Portal: &database.Portal{
@@ -336,8 +341,8 @@ func (m *MessagesClient) QueueRemoteEventWrapper(evt bridgev2.RemoteEvent) {
 			}
 
 			if asMessageEvent.ConvertMessageFunc != nil {
-				if len(asMessageEvent.Data.CombinedComponents) > 1 || asMessageEvent.Data.Subject != "" {
-					m.UserLogin.Log.Info().Msgf("original:\n%s", asMessageEvent.Data)
+				if true { //len(asMessageEvent.Data.CombinedComponents) > 1 || asMessageEvent.Data.Subject != "" {
+					// m.UserLogin.Log.Info().Msgf("original:\n%s", asMessageEvent.Data)
 					convertResult, err := asMessageEvent.ConvertMessageFunc(context, portal, &macos.MockMatrixAPI{}, asMessageEvent.Data)
 					if err != nil {
 						m.UserLogin.Log.Error().Msgf("error converting message: %v", err)
@@ -349,6 +354,7 @@ func (m *MessagesClient) QueueRemoteEventWrapper(evt bridgev2.RemoteEvent) {
 				convertResult, err := asMessageEvent.ConvertEditFunc(context, portal, &macos.MockMatrixAPI{}, []*database.Message{}, asMessageEvent.Data)
 				if err != nil {
 					m.UserLogin.Log.Error().Msgf("error converting message: %v", err)
+					return
 				}
 				m.UserLogin.Log.Info().Msgf(macos.ConvertEditToString(convertResult))
 			} else if asReactionEvent, ok := evt.(*simplevent.ReactionSync); ok {
@@ -425,7 +431,7 @@ func (m *MessagesClient) HandleEdit(message *macos.Message) {
 		TargetMessage:   networkid.MessageID(message.GUID),
 		ID:              networkid.MessageID(message.GUID),
 		Data:            *message,
-		ConvertEditFunc: ConvertEditMessage,
+		ConvertEditFunc: m.ConvertEditMessage,
 	})
 }
 
@@ -445,49 +451,108 @@ func (m *MessagesClient) HandleNormalMessage(message *macos.Message) {
 			Timestamp:    time.Now(),
 		},
 		ID:                 networkid.MessageID(message.GUID),
-		ConvertMessageFunc: ConvertMessage,
+		ConvertMessageFunc: m.ConvertMessage,
 		Data:               *message,
 	})
 }
 
-func ConvertEditMessage(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, existing []*database.Message, data macos.Message) (*bridgev2.ConvertedEdit, error) {
-	editParts, err := data.ConvertMessageToParts(ctx, intent, portal.MXID)
+func (m *MessagesClient) GetGetUsersFunction(ctx context.Context, bridge *bridgev2.Bridge, portalKey networkid.PortalKey) func() ([]id.UserID, error) {
+	return func() ([]id.UserID, error) {
+		if m.DryRun {
+			return []id.UserID{}, nil
+		}
+		userLogins, err := bridge.GetUserLoginsInPortal(ctx, portalKey)
+		if err != nil {
+			return nil, fmt.Errorf("getting user logins for portal %s: %v", portalKey, err)
+		}
+		users := make([]id.UserID, len(userLogins))
+		for _, userLogin := range userLogins {
+			users = append(users, userLogin.UserMXID)
+		}
+		return users, nil
+	}
+}
+
+func (m *MessagesClient) ConvertEditMessage(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, existing []*database.Message, data macos.Message) (*bridgev2.ConvertedEdit, error) {
+	currentParts, err := data.ConvertMessageToParts(ctx, intent, portal.MXID, m.GetGetUsersFunction(ctx, portal.Bridge, portal.PortalKey))
 	if err != nil {
 		return nil, fmt.Errorf("converting data message to parts: %w", err)
 	}
-	modifiedParts := []*bridgev2.ConvertedEditPart{}
-	deletedParts := []*database.Message{}
-	addedParts := &bridgev2.ConvertedMessage{
-		Parts: []*bridgev2.ConvertedMessagePart{},
+	for i, part := range currentParts {
+		part.ID = networkid.PartID(strconv.Itoa(i))
 	}
 
-	// This is almost certainly wrong, but who knows...
-	for existingIndex := 0; existingIndex < len(editParts) && existingIndex < len(existing); existingIndex++ {
-		modifiedParts = append(modifiedParts, editParts[existingIndex].ToEditPart(existing[existingIndex]))
+	modifiedParts := []*bridgev2.ConvertedEditPart{}
+	deletedParts := []*database.Message{}
+
+	// EditedMessageParts is the source of truth for how many parts were originally in the message
+	editedMessagePartsLength := len(data.EditedMessageParts)
+	if editedMessagePartsLength == 0 {
+		return nil, fmt.Errorf("edited message parts was empty")
 	}
-	if len(existing) < len(editParts) {
-		addedParts.Parts = editParts[len(existing):]
-	} else if len(editParts) < len(existing) {
-		deletedParts = existing[len(editParts):]
+	if editedMessagePartsLength != len(existing) {
+		return nil, fmt.Errorf("differing amount of parts in edited message (%d) vs existing message parts (%d): ", editedMessagePartsLength, len(existing))
+	}
+
+	// Strong assumption here that one cannot create new message parts when editing a message
+	currentMessageIndex := 0
+	for index := range editedMessagePartsLength {
+		editedMessagePart := data.EditedMessageParts[index]
+		existingMessagePart := existing[index]
+
+		if editedMessagePart.Status == macos.EditedMessageStatusUnsent {
+			/*
+				// TODO: Consider modifying the existing message to indicate when it was deleted?
+				who := "You"
+				if !data.IsFromMe {
+					who = "Sender"
+				}
+				suffix := "."
+				if !data.EditedAt.IsZero() {
+					if readableDateTimeDiff := dateTimeDiff(data.CreatedAt, data.EditedAt); readableDateTimeDiff != "" {
+						suffix = fmt.Sprintf(" %s after sending%s", readableDateTimeDiff, suffix)
+					}
+				}
+				convertedMessagePart.Content = &event.MessageEventContent{
+					MsgType: event.MsgNotice,
+					Body:    fmt.Sprintf("%s unsent this message part%s", who, suffix),
+				}
+				if !data.IsFromMe {
+					username := "temp"
+					server := "temp"
+					name := "temp"
+					convertedMessagePart.Content.Format = event.FormatHTML
+					convertedMessagePart.Content.FormattedBody = fmt.Sprintf("%s unsent this message part%s", GetMentionText(username, server, name), suffix)
+				}
+			*/
+			deletedParts = append(deletedParts, existingMessagePart)
+			continue
+		}
+
+		modifiedParts = append(modifiedParts, currentParts[currentMessageIndex].ToEditPart(existingMessagePart))
+		currentMessageIndex += 1
 	}
 
 	return &bridgev2.ConvertedEdit{
 		ModifiedParts: modifiedParts,
 		DeletedParts:  deletedParts,
-		AddedParts:    addedParts,
 	}, nil
 }
 
-func ConvertMessage(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, data macos.Message) (*bridgev2.ConvertedMessage, error) {
+func (m *MessagesClient) ConvertMessage(ctx context.Context, portal *bridgev2.Portal, intent bridgev2.MatrixAPI, data macos.Message) (*bridgev2.ConvertedMessage, error) {
 	var replyTo *networkid.MessageOptionalPartID
 	if data.ReplyToGUID != "" {
 		replyTo = &networkid.MessageOptionalPartID{
 			MessageID: networkid.MessageID(data.ReplyToGUID),
 		}
 	}
-	parts, err := data.ConvertMessageToParts(ctx, intent, portal.MXID)
+
+	parts, err := data.ConvertMessageToParts(ctx, intent, portal.MXID, m.GetGetUsersFunction(ctx, portal.Bridge, portal.PortalKey))
 	if err != nil {
 		return nil, fmt.Errorf("converting data message to parts: %w", err)
+	}
+	for i, part := range parts {
+		part.ID = networkid.PartID(strconv.Itoa(i))
 	}
 	return &bridgev2.ConvertedMessage{
 		ReplyTo: replyTo,
@@ -581,7 +646,7 @@ func (m *MessagesClient) HandleAvatarOrMemberLeave(message *macos.Message) {
 							if len(message.Attachments) < 1 {
 								return nil, fmt.Errorf("no attachments found in update avatar message")
 							}
-							firstAttachment := message.Attachments[0]
+							firstAttachment := message.Attachments[slices.Collect(maps.Keys(message.Attachments))[0]]
 							firstAttachment.PathOnDisk, err = macos.ReplaceHomeDirectory(firstAttachment.PathOnDisk)
 							if err != nil {
 								return nil, fmt.Errorf("getting avatar path: %w", err)

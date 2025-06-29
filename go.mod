@@ -12,6 +12,7 @@ require (
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e // indirect
+	github.com/tj/go-naturaldate v1.3.0 // indirect
 	golang.org/x/sync v0.14.0 // indirect
 	maunium.net/go/mauflag v1.0.0 // indirect
 )

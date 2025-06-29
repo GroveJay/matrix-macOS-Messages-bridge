@@ -77,7 +77,7 @@ ORDER BY message.date ASC
 
 const MessagesNewerThanQuery = baseMessagesQuery + `
 WHERE message.date > $1 OR message.date_edited > $1 OR message.date_retracted > $1
-ORDER BY COALESCE(message.date_retracted, COALESCE(message.date_edited, message.date)) ASC
+ORDER BY COALESCE(NULLIF(message.date_retracted, 0), COALESCE(NULLIF(message.date_edited, 0), message.date)) ASC
 `
 
 const MessagesBetweenQuery = baseMessagesQuery + `

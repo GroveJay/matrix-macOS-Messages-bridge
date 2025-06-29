@@ -5,15 +5,18 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"math"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"maps"
+
 	"github.com/nyaruka/phonenumbers"
-	"github.com/rs/zerolog"
+	"github.com/tj/go-naturaldate"
+	"howett.net/plist"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
@@ -25,6 +28,18 @@ const PORTAL_ID_SEPARATOR = "|"
 var AppleEpoch = time.Date(2001, 1, 1, 0, 0, 0, 0, time.UTC)
 var AppleEpochUnix = AppleEpoch.Unix()
 var AppleEpochUnixNano = AppleEpoch.UnixNano()
+
+const (
+	COLOR_CLEAR = "\x1b[0m"
+)
+
+func isASCIIDigit(input byte) bool {
+	return input <= 57 && input >= 48
+}
+
+func byteToDigit(input byte) uint8 {
+	return input - 48
+}
 
 func MakeMessagesPortalID(userLoginID networkid.UserLoginID, chatGUID string) networkid.PortalID {
 	return networkid.PortalID(strings.Join([]string{"MessagesID", string(userLoginID), chatGUID}, PORTAL_ID_SEPARATOR))
@@ -150,7 +165,7 @@ func ReplaceHomeDirectory(input string) (string, error) {
 }
 
 // https://github.com/tinkerator/xxd/blob/main/xxd.go
-func Dump(data []byte) (lines []string) {
+func Dump(data []byte, colors []byte) (lines []string) {
 	offset := 0 & 15
 	base := 0 - offset
 	index := 0
@@ -166,9 +181,10 @@ func Dump(data []byte) (lines []string) {
 			parts = append(parts, "  ")
 			ch[i] = byte(' ')
 		}
-		for i := 0; i < count; i++ {
+		for i := range count {
 			c := data[index+i]
-			parts = append(parts, fmt.Sprintf("%02x", c))
+			color := colors[index+i]
+			parts = append(parts, fmt.Sprintf("\x1b[%dm%02x%s", color, c, COLOR_CLEAR))
 			if c < 32 || c >= 127 {
 				c = byte('.')
 			}
@@ -178,33 +194,12 @@ func Dump(data []byte) (lines []string) {
 			parts = append(parts, "  ")
 		}
 		parts = append(parts, string(ch[:1+offset+count]))
-		lines = append(lines, strings.Join(parts, " "))
+		lineContent := strings.Join(parts, " ") + COLOR_CLEAR
+		lines = append(lines, lineContent)
 		index += count
 		n -= count
 	}
 	return
-}
-
-func FilterAttachments(log *zerolog.Logger, messageAttachments []*Attachment, combinedComponents []CombinedComponent) []*Attachment {
-	attachmentMap := make(map[string]*Attachment, len(messageAttachments))
-	for _, messageAttachment := range messageAttachments {
-		attachmentMap[messageAttachment.GUID] = messageAttachment
-	}
-	filteredAttachments := make([]*Attachment, 0, len(messageAttachments))
-	for _, component := range combinedComponents {
-		if combinedComponentAttachment, ok := component.(CombinedComponentAttachment); ok {
-			if combinedComponentAttachment.AttachmentMeta.GUID != nil {
-				fileGUID := *combinedComponentAttachment.AttachmentMeta.GUID
-				attachment, ok := attachmentMap[fileGUID]
-				if ok {
-					filteredAttachments = append(filteredAttachments, attachment)
-				} else {
-					log.Warn().Msgf("Didn't find attachment %s in message", fileGUID)
-				}
-			}
-		}
-	}
-	return filteredAttachments
 }
 
 func ErrorToMessagePart(err error) *bridgev2.ConvertedMessagePart {
@@ -220,6 +215,7 @@ func ErrorToMessagePart(err error) *bridgev2.ConvertedMessagePart {
 	}
 }
 
+/*
 func dateTimeDiff(start time.Time, end time.Time) string {
 	durationSecondsRound := end.Sub(start).Round(time.Second)
 	if durationSecondsRound < 0 {
@@ -260,11 +256,12 @@ func humanizeDuration(duration time.Duration) string {
 
 	return strings.Join(parts, " ")
 }
+*/
 
 func ConvertConvertedMessageToString(c *bridgev2.ConvertedMessage) string {
 	result := fmt.Sprintf("Converted:\n%d parts:\n", len(c.Parts))
 	for _, part := range c.Parts {
-		result += fmt.Sprintf(" - %s\n", part.Type)
+		result += fmt.Sprintf(" - %s\n   Body(%d): %s\n   Format: %s\n   FormattedBody(%d): %s\n", part.Type, len(part.Content.Body), part.Content.Body, part.Content.Format, len(part.Content.FormattedBody), part.Content.FormattedBody)
 	}
 	return result
 }
@@ -285,4 +282,247 @@ func ConvertEditToString(c *bridgev2.ConvertedEdit) string {
 
 func GetMentionText(username string, server string, name string) string {
 	return fmt.Sprintf("<a href=\"https://matrix.to/#/@%s:%s\">@%s</a>", username, server, name)
+}
+
+var DATE_TIME_LAYOUTS = [...]string{
+	"01/02/2006 15:04:05 PM",
+	"1/2/2006 15:04:05 PM",
+	"01/02/2006 15:04 PM",
+	"01/02/2006 15:04 pm",
+	"01/02/2006 15:04PM",
+	"01/02/06 15:04 PM",
+	"01/02/06 15:04PM",
+	"1/2/2006 15:04 PM",
+	"1/2/06 15:04:05 MST",
+	"2006/01/02 15:04 PM",
+	"2006/01/02 15:04PM",
+	"15:04PM 02/01/2006",
+	"15:04PM 2006/01/02",
+	"15:04 PM 01/02",
+	"15:04 pm 01/02",
+	"1/2 15:04 PM MST",
+	"1/2 15 am",
+	"15pm Monday 1/2",
+	"Monday 1/2 15PM",
+	time.RFC3339,
+}
+
+func BestEffortDateTimeParse(input string, ref time.Time) (time.Time, error) {
+	sanitized := strings.ReplaceAll(input, "@", " ")
+	sanitized = strings.ReplaceAll(sanitized, "-", " ")
+	sanitized = strings.ReplaceAll(sanitized, ",", "")
+	sanitized = strings.ReplaceAll(sanitized, ".", "")
+	sanitized = strings.TrimSpace(sanitized)
+	if eventTime, err := naturaldate.Parse(sanitized, ref, naturaldate.WithDirection(naturaldate.Future)); err == nil {
+		return eventTime, nil
+	}
+	sanitized = strings.ReplaceAll(sanitized, "at ", "")
+	sanitized = strings.ReplaceAll(sanitized, "on ", "")
+	for _, layout := range DATE_TIME_LAYOUTS {
+		if eventTime, err := time.Parse(layout, sanitized); err == nil {
+			return eventTime, nil
+		}
+	}
+
+	return time.Time{}, fmt.Errorf("unable to parse date %s (%s)", input, sanitized)
+}
+
+const ICS_FORMAT = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//hacksw/handcal//NONSGML v1.0//EN
+BEGIN:VEVENT
+UID:%s-%s@jrgrover-messages.com
+DTSTAMP:%s
+DTSTART:%s
+END:VEVENT
+END:VCALENDAR`
+const ICS_ISO = "20060102T150405Z"
+
+func TimeToICS(ref time.Time) string {
+	dtstamp := time.Now().UTC().Format(ICS_ISO)
+	mseconds := time.Now().UTC().Format(".000000")
+	dtstart := ref.Format(ICS_ISO)
+	return fmt.Sprintf(ICS_FORMAT, dtstamp, mseconds, dtstamp, dtstart)
+}
+
+func ParsePListData(data []byte, rootKey string) (*plist.UID, []any, error) {
+	plistDictionary := make(map[string]any, 0)
+	var topValue, objectsValue, rootValue any
+	var top map[string]any
+	var objects []any
+	var ok bool
+	var rootID plist.UID
+
+	if err := plist.NewDecoder(bytes.NewReader(data)).Decode(plistDictionary); err != nil {
+		return nil, nil, fmt.Errorf("decoding plist to plistDictionary: %w", err)
+	}
+	if topValue, ok = plistDictionary["$top"]; !ok {
+		return nil, nil, fmt.Errorf("no $top key found in plist root")
+	}
+	if top, ok = topValue.(map[string]any); !ok {
+		return nil, nil, fmt.Errorf("could not coerce $top value in plist to map[strings]any: %T", topValue)
+	}
+	if objectsValue, ok = plistDictionary["$objects"]; !ok {
+		return nil, nil, fmt.Errorf("no $objects key found in plist root")
+	}
+	if objects, ok = objectsValue.([]any); !ok {
+		return nil, nil, fmt.Errorf("could not coerce $objects value in plist to []any: %T", objectsValue)
+	}
+	if rootValue, ok = top[rootKey]; !ok {
+		return nil, nil, fmt.Errorf("could not find \"root\" in top map of plist")
+	}
+	if rootID, ok = rootValue.(plist.UID); !ok {
+		return nil, nil, fmt.Errorf("could not coerce root to plist.UID: %T", rootValue)
+	}
+
+	return &rootID, objects, nil
+}
+
+func FlatObjectMapFromPlistData(data []byte, rootKey string) (map[string]any, error) {
+	rootID, objects, err := ParsePListData(data, rootKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return FlattenObject(objects[*rootID], "", objects), nil
+}
+
+func FlattenObject(input any, namespace string, objects []any) map[string]any {
+	results := map[string]any{}
+
+	if inputAsMapStringAny, ok := input.(map[string]any); ok {
+		if len(inputAsMapStringAny) == 2 {
+			if _, okClass := inputAsMapStringAny["$class"]; okClass {
+				if nsObjects, okNSObjects := inputAsMapStringAny["NS.objects"]; okNSObjects {
+					arrayFlattened := FlattenObject(nsObjects, namespace, objects)
+					maps.Copy(results, arrayFlattened)
+					return results
+				}
+			}
+		} else if len(inputAsMapStringAny) == 3 {
+			if _, okClass := inputAsMapStringAny["$class"]; okClass {
+				if _, okNSBase := inputAsMapStringAny["NS.base"]; okNSBase {
+					if NSrelative, okNSRelative := inputAsMapStringAny["NS.relative"]; okNSRelative {
+						relativeFlattened := FlattenObject(NSrelative, namespace, objects)
+						maps.Copy(results, relativeFlattened)
+						return results
+					}
+				}
+			}
+		}
+		for key, value := range inputAsMapStringAny {
+			if key == "$class" || key == "$classname" {
+				continue
+			}
+			valueFlattened := FlattenObject(value, fmt.Sprintf("%s/%s", namespace, key), objects)
+			maps.Copy(results, valueFlattened)
+		}
+		return results
+	}
+
+	if inputAsArray, ok := input.([]any); ok {
+		for i, item := range inputAsArray {
+			itemName := fmt.Sprintf("%s/%d", namespace, i)
+			itemFlattened := FlattenObject(item, itemName, objects)
+			maps.Copy(results, itemFlattened)
+		}
+		return results
+	}
+
+	if inputAsPlistUID, ok := input.(plist.UID); ok {
+		referencedObject := objects[inputAsPlistUID]
+		referencedFlattened := FlattenObject(referencedObject, namespace, objects)
+		maps.Copy(results, referencedFlattened)
+		return results
+	}
+
+	results[namespace] = input
+	return results
+}
+
+const IMAGE_URL_PREVIEW = `<div style="border-radius: 5px;">
+		<img style="max-width: 350px; max-height: 200px;" src="%s"/>
+		<a style="margin: 5px;" href="%s">
+			<h5>%s</h5>
+			<p style="font-weight: lighter;">%s</p>
+		</a>
+	</div>`
+
+const ICON_TEXT_URL_PREVIEW = `<div style="border-radius: 5px; display: flex; align-items: center;">
+	<a style="margin: 5px; flex: 1 1 auto;" href="%s">
+		<h5>%s</h5>
+		<p style="font-weight: lighter;">%s</p>
+	</a>
+	<img style="max-width: 35px; max-height: 35px; flex: 1 1 auto;" src="%s"/>
+</div>`
+const TEXT_URL_PREVIEW = `<div style="border-radius: 5px;">
+	<a style="margin: 5px;" href="%s">
+		<h5>%s</h5>
+		<p style="font-weight: lighter;">%s</p>
+	</a>
+</div>`
+
+type PListValue interface {
+	string | *string | uint64 | float64 | bool | map[string]any | []byte | []any
+}
+
+func GetValueAsTypeFromMapKey[T PListValue](input map[string]any, key string) (*T, error) {
+	var value any
+	var asType T
+	var ok bool
+	if value, ok = input[key]; !ok {
+		return nil, fmt.Errorf("key %s was not present in map", key)
+	}
+	if asType, ok = value.(T); !ok {
+		return nil, fmt.Errorf("value was not of type %T: %T", new(*T), value)
+	}
+	return &asType, nil
+}
+
+func URLPreviewFromFlatPlistData(flatPlistData map[string]any) (result string, err error) {
+	if isPlaceholderValue, err := GetValueAsTypeFromMapKey[bool](flatPlistData, "/richLinkIsPlaceholder"); err == nil && *isPlaceholderValue {
+		return result, fmt.Errorf("url preview is placeholder, ignoring")
+	} else if err != nil {
+		return result, fmt.Errorf("getting placeholder key from plist: %w", err)
+	}
+
+	var urlString *string
+	if urlString, err = GetValueAsTypeFromMapKey[string](flatPlistData, "/richLinkMetadata/URL/NS.relative"); err != nil {
+		if urlString, err = GetValueAsTypeFromMapKey[string](flatPlistData, "/richLinkMetadata/originalURL/NS.relative"); err != nil {
+			return result, fmt.Errorf("finding URL in preview data: %w", err)
+		}
+	}
+
+	hostnameOrUrl := *urlString
+	parsedUrl, err := url.Parse(*urlString)
+	if err == nil {
+		hostnameOrUrl = parsedUrl.Hostname()
+	}
+
+	var title *string
+	if title, err = GetValueAsTypeFromMapKey[string](flatPlistData, "/richLinkMetadata/title"); err != nil {
+		return result, fmt.Errorf("getting title in preview data: %w", err)
+	}
+
+	if singleImageUrl, err := GetValueAsTypeFromMapKey[string](flatPlistData, "/richLinkMetadata/imageMetadata/URL"); err != nil {
+		return fmt.Sprintf(IMAGE_URL_PREVIEW, *singleImageUrl, *urlString, *title, hostnameOrUrl), nil
+	}
+
+	// TODO: Sometimes there are multiple images
+
+	var iconUrl *string
+	for iconIndex := 0; ; iconIndex += 1 {
+		if nextIconUrl, err := GetValueAsTypeFromMapKey[string](flatPlistData, fmt.Sprintf("/richLinkMetadata/icons/%d/URL", iconIndex)); err != nil {
+			break
+		} else {
+			iconUrl = nextIconUrl
+		}
+	}
+
+	if iconUrl != nil {
+		// TOOD: Add color to this if it exists in the plist
+		return fmt.Sprintf(ICON_TEXT_URL_PREVIEW, *urlString, *title, hostnameOrUrl, *iconUrl), nil
+	}
+
+	return fmt.Sprintf(TEXT_URL_PREVIEW, *urlString, *title, hostnameOrUrl), nil
 }

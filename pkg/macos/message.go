@@ -1,21 +1,103 @@
 package macos
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
-	"html/template"
-	"os"
-	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 
-	"github.com/gabriel-vasile/mimetype"
+	"howett.net/plist"
 	"maunium.net/go/mautrix/bridgev2"
-	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
 )
+
+type EffectType int64
+
+const (
+	Big     EffectType = 5
+	Small   EffectType = 11
+	Shake   EffectType = 9
+	Nod     EffectType = 8
+	Explode EffectType = 12
+	Ripple  EffectType = 4
+	Bloom   EffectType = 6
+	Jitter  EffectType = 10
+)
+
+var EFFECT_TYPE_STRING_MAP = map[EffectType]string{
+	Big:     "big",
+	Small:   "small",
+	Shake:   "shake",
+	Nod:     "nod",
+	Explode: "explode",
+	Ripple:  "ripple",
+	Bloom:   "bloom",
+	Jitter:  "jitter",
+}
+
+func (e *EffectType) String() (result string) {
+	if result, ok := EFFECT_TYPE_STRING_MAP[*e]; ok {
+		return result
+	}
+	return fmt.Sprintf("unknown-%d", *e)
+}
+
+func (e *EffectType) IsValid() bool {
+	switch *e {
+	case Big, Small, Shake, Nod, Explode, Ripple, Bloom, Jitter:
+		return true
+	default:
+		return false
+	}
+}
+
+type ConversionType int
+
+const (
+	ConversionTypeCurrency ConversionType = iota
+	ConversionTypeDistance
+	ConversionTypeTemperature
+	ConversionTypeTimezone
+	ConversionTypeVolume
+	ConversionTypeWeight
+)
+
+type Identifier struct {
+	LocalID string
+	Service string
+	IsGroup bool
+}
+
+type AttachmentMeta struct {
+	GUID          *string
+	Transcription *string
+	Height        *float64
+	Width         *float64
+	Name          *string
+}
+
+// TODO: Create minimal "ParsediMessage" struct so we're not carrying around unused baggage all the way around
+/*
+ParsediMessage:
+- ReplyToGUID
+- ItemType
+- CombinedComponents
+- Attachments
+- AttributedBodyText
+- EditedMessageParts
+- IsFromMe
+- EditedAt
+- CreatedAt
+- CoonvertEditedMessagePart()
+- GUID
+- Tapback
+- Sender
+*/
 
 type Message struct {
 	RowID         int
@@ -34,15 +116,14 @@ type Message struct {
 	IsEdited       bool
 	IsRetracted    bool
 
-	GUID               string
-	Subject            string
-	Text               string
-	AttributedBodyText string
-	ChatGUID           string
-	ReplyToGUID        string
-	ThreadID           string
-	NewGroupTitle      string
-	BalloonBundleID    string
+	GUID            string
+	Subject         string
+	Text            string
+	ChatGUID        string
+	ReplyToGUID     string
+	ThreadID        string
+	NewGroupTitle   string
+	BalloonBundleID string
 
 	Sender Identifier
 	Target Identifier
@@ -55,325 +136,462 @@ type Message struct {
 	EditedAt    time.Time
 	RetractedAt time.Time
 
-	Attachments        []*Attachment
-	Components         []Archivable
-	CombinedComponents []CombinedComponent
+	Attachments        map[string]*Attachment
+	AttributedString   NSMutableAttributedString
 	EditedMessageParts []*EditedMessagePart
 
 	Tapback *Tapback
+
+	AttributedBody []byte
+	PayloadData    []byte
 }
 
-// TODO: Create a minimal "ParsediMessage" struct so we're not carrying around unused baggage all the way around
-/*
-ParsediMessage:
-- ReplyToGUID
-- ItemType
-- CombinedComponents
-- Attachments
-- AttributedBodyText
-- EditedMessageParts
-- IsFromMe
-- EditedAt
-- CreatedAt
-- IsPartEdited()
-- CoonvertEditedMessagePart()
-- GUID
-- Tapback
-- Sender
-
-// TODO: Comb through CombinedComponent for TextEffects of TextEffectMention and add in the userIDs?
-ConvertMessageToParts
-- Message.ConvertAttributesToMessagePart
-  - FormatTextRangeEffectsOnText
-    - TextEffect.ApplyTextRangeEffectToText
-*/
-
 func (m Message) String() string {
-	result := fmt.Sprintf("Row: %d\nSubject: %s\nText: %s\nAttributedBodyText: %s", m.RowID, m.Subject, m.Text, m.AttributedBodyText)
-	result += fmt.Sprintf("\nAttachments: %d", len(m.Attachments))
-	result += fmt.Sprintf("\nComponents: %d", len(m.Components))
-	result += fmt.Sprintf("\nCombinedComponents: %d", len(m.CombinedComponents))
-	result += fmt.Sprintf("\nEditedMessageParts: %d", len(m.EditedMessageParts))
+	results := []string{}
+	results = append(results, fmt.Sprintf("Row: %d", m.RowID))
+	results = append(results, fmt.Sprintf("Type: %d", m.ItemType))
+	if len(m.Subject) > 0 {
+		results = append(results, fmt.Sprintf("Subject: %s", m.Subject))
+	}
+	if len(m.Text) > 0 {
+		results = append(results, fmt.Sprintf("Text: %s", m.Text))
+	}
+
+	results = append(results, fmt.Sprintf("Attachments: %d", len(m.Attachments)))
+	for guid, attachment := range m.Attachments {
+		results = append(results, fmt.Sprintf("\t%s - %s", guid, attachment.GUID))
+	}
+
+	results = append(results, m.AttributedString.String())
+
+	results = append(results, fmt.Sprintf("EditedMessageParts: %d", len(m.EditedMessageParts)))
 	if len(m.EditedMessageParts) > 0 {
 		for _, editedMessagePart := range m.EditedMessageParts {
-			result += fmt.Sprintf("\n\t%s - %d edits", editedMessagePart.Status, len(editedMessagePart.EditHistory))
+			results = append(results, fmt.Sprintf("\t%s - %d edits", editedMessagePart.Status, len(editedMessagePart.EditHistory)))
 			if len(editedMessagePart.EditHistory) > 0 {
 				for _, editHistory := range editedMessagePart.EditHistory {
-					result += fmt.Sprintf("\n\t\t (%d) - %s", len(editHistory.Components), *editHistory.Text)
+					results = append(results, fmt.Sprintf("\t\t (%d ranges) - %s", len(editHistory.AttributedString.RangedAttributes), *editHistory.Text))
 				}
 			}
 		}
 	}
 	if m.Tapback != nil {
-		result += fmt.Sprintf("\nTapback: %s", m.Tapback.Emoji)
+		results = append(results, fmt.Sprintf("Tapback: %s", m.Tapback.Emoji))
 	}
-	return result
+	return strings.Join(results, "\n")
 }
 
-type TapbackType int
-
-const (
-	TapbackLove TapbackType = iota + 2000
-	TapbackLike
-	TapbackDislike
-	TapbackLaugh
-	TapbackEmphasis
-	TapbackQuestion
-	TapbackEmoji
-	TapbackSticker
-
-	TapbackRemoveOffset = 1000
-)
-
-type Tapback struct {
-	TargetGUID string
-	Type       TapbackType
-	Remove     bool
-	TargetPart int
-	Emoji      string
-}
-
-var (
-	ErrUnknownNormalTapbackTarget = errors.New("unrecognized formatting of normal tapback target")
-	ErrInvalidTapbackTargetPart   = errors.New("tapback target part index is invalid")
-	ErrUnknownTapbackTargetType   = errors.New("unrecognized tapback target type")
-)
-
-func (t *Tapback) GetEmoji() string {
-	switch t.Type {
-	case 0:
-		return ""
-	case TapbackLove:
-		return "\u2764\ufe0f" // "❤️"
-	case TapbackLike:
-		return "\U0001f44d\ufe0f" // "👍️"
-	case TapbackDislike:
-		return "\U0001f44e\ufe0f" // "👎️"
-	case TapbackLaugh:
-		return "\U0001f602" // "😂"
-	case TapbackEmphasis:
-		return "\u203c\ufe0f" // "‼️"
-	case TapbackQuestion:
-		return "\u2753\ufe0f" // "❓️"
-	case TapbackEmoji:
-		return t.Emoji
-	default:
-		return "\ufffd" // "�"
-	}
-}
-
-func (tapback *Tapback) Parse() (*Tapback, error) {
-	if tapback.Type >= 3000 && tapback.Type < 4000 {
-		tapback.Type -= TapbackRemoveOffset
-		tapback.Remove = true
-	}
-	if strings.HasPrefix(tapback.TargetGUID, "bp:") {
-		tapback.TargetGUID = tapback.TargetGUID[len("bp:"):]
-	} else if strings.HasPrefix(tapback.TargetGUID, "p:") {
-		targetParts := strings.Split(tapback.TargetGUID[len("p:"):], "/")
-		if len(targetParts) == 2 {
-			var err error
-			tapback.TargetPart, err = strconv.Atoi(targetParts[0])
-			if err != nil {
-				return nil, fmt.Errorf("%w: '%s' (%v)", ErrInvalidTapbackTargetPart, tapback.TargetGUID, err)
-			}
-			tapback.TargetGUID = targetParts[1]
-		} else {
-			return nil, fmt.Errorf("%w: '%s'", ErrUnknownNormalTapbackTarget, tapback.TargetGUID)
-		}
-	} else if len(tapback.TargetGUID) != 36 {
-		return nil, fmt.Errorf("%w: '%s'", ErrUnknownTapbackTargetType, tapback.TargetGUID)
-	}
-	return tapback, nil
-}
-
-type StickerSource string
-
-const (
-	StickerSourceNone             StickerSource = ""
-	StickerSourceGenmoji          StickerSource = "com.apple.messages.genmoji"
-	StickerSourceAnimoji          StickerSource = "com.apple.Animoji.StickersApp.MessagesExtension"
-	StickerSourceAnimojiJellyfish StickerSource = "com.apple.Jellyfish.Animoji"
-	StickerSourceUserGenerated    StickerSource = "com.apple.Stickers.UserGenerated.MessagesExtension"
-)
-
-type Attachment struct {
-	GUID                       string
-	PathOnDisk                 string
-	MimeType                   string
-	FileName                   string
-	IsSticker                  int
-	StickerSource              StickerSource
-	EmojiImageShortDescription string
-}
-
-func (a Attachment) Read() (result []byte, err error) {
-	a.PathOnDisk, err = ReplaceHomeDirectory(a.PathOnDisk)
-	if err != nil {
-		return nil, fmt.Errorf("reading attachment: %w", err)
-	}
-	return os.ReadFile(a.PathOnDisk)
-}
-
-func (attachment *Attachment) GetMimeType() string {
-	if attachment.MimeType == "" {
-		mime, err := mimetype.DetectFile(attachment.PathOnDisk)
-		if err != nil {
-			return ""
-		}
-		attachment.MimeType = mime.String()
-	}
-	return attachment.MimeType
-}
-
-func ParseIdentifier(identifier string) Identifier {
-	if len(identifier) == 0 {
-		return Identifier{}
-	}
-	parts := strings.Split(identifier, ";")
-	return Identifier{
-		Service: parts[0],
-		IsGroup: parts[1] == "+",
-		LocalID: parts[2],
-	}
-}
-
-func (id Identifier) String() string {
-	if len(id.LocalID) == 0 {
-		return ""
-	}
-	typeChar := '-'
-	if id.IsGroup {
-		typeChar = '+'
-	}
-	return fmt.Sprintf("%s;%c;%s", id.Service, typeChar, id.LocalID)
-}
-
-type ReadReceipt struct {
-	ChatGUID   string
-	ReadUpTo   string
-	ReadAt     time.Time
-	IsFromMe   bool
-	SenderGUID string
-}
-
-type Identifier struct {
-	LocalID string
-	Service string
-	IsGroup bool
-}
-
-func (m *Message) IsPartEdited(index int) bool {
-	return len(m.EditedMessageParts) != 0 &&
-		index < len(m.EditedMessageParts) &&
-		m.EditedMessageParts[index].Status == EditedMessageStatusEdited
-}
-
-func (m *Message) ConvertAttributesToMessagePart(attributes []TextRangeEffect, index int) *bridgev2.ConvertedMessagePart {
-	if m.IsPartEdited(index) {
-		if len(m.EditedMessageParts) > 0 {
-			return m.ConvertEditedMessagePart(index)
-		}
-	} else {
-		convertedMessagePart := &bridgev2.ConvertedMessagePart{
-			Type: event.EventMessage,
-			Content: &event.MessageEventContent{
-				MsgType: event.MsgText,
-				Body:    template.HTMLEscapeString(m.AttributedBodyText),
-			},
-		}
-		formattedText := FormatTextRangeEffectsOnText(m.AttributedBodyText, attributes)
-		// If we failed to parse any text above, make sure we sanitize it before using it
-		if formattedText == "" {
-			formattedText = convertedMessagePart.Content.Body
-		}
-
-		if strings.HasPrefix(formattedText, FITNESS_RECEIVER) {
-			formattedText = strings.Replace(formattedText, FITNESS_RECEIVER, "", 1)
-		}
-
-		convertedMessagePart.Content.Format = event.FormatHTML
-		convertedMessagePart.Content.FormattedBody = formattedText
-
-		return convertedMessagePart
-	}
-	return nil
-}
-
-func (m *Message) ConvertMessageToParts(ctx context.Context, intent bridgev2.MatrixAPI, roomId id.RoomID) ([]*bridgev2.ConvertedMessagePart, error) {
-	parts := []*bridgev2.ConvertedMessagePart{}
+func (m *Message) ConvertMessageToParts(ctx context.Context, intent bridgev2.MatrixAPI, roomID id.RoomID, get_users func() ([]id.UserID, error)) ([]*bridgev2.ConvertedMessagePart, error) {
 	if m.ItemType == 6 {
-		parts = append(parts, ErrorToMessagePart(errors.New("unsupported item type (6: Shareplay)")))
-		return parts, nil
+		return []*bridgev2.ConvertedMessagePart{ErrorToMessagePart(errors.New("unsupported item type (6: Shareplay)"))}, nil
 	}
 	if m.ItemType == 4 {
-		parts = append(parts, ErrorToMessagePart(errors.New("unsupported item type (4: Location Sharing)")))
-		return parts, nil
+		return []*bridgev2.ConvertedMessagePart{ErrorToMessagePart(errors.New("unsupported item type (4: Location Sharing)"))}, nil
 	}
 	if m.BalloonBundleID != "" {
-		parts = append(parts, m.ConvertAppMessageToMessagePart())
+		if parts, err := m.ConvertAppMessageToMessageParts(ctx, intent, roomID); err != nil {
+			return []*bridgev2.ConvertedMessagePart{ErrorToMessagePart(err)}, nil
+		} else {
+			return parts, nil
+		}
+	}
+
+	convertedMessageParts, err := m.ConvertAttributedStringToFormattedHTMLParts(ctx, intent, roomID, get_users)
+	if err != nil {
+		return []*bridgev2.ConvertedMessagePart{ErrorToMessagePart(fmt.Errorf("converting AttributedString to message parts: %w", err))}, nil
+	}
+
+	if len(convertedMessageParts) == 0 {
+		// If no parts were produced, add message text as a part
+		if textPart := m.ConvertMessageText(); textPart != nil {
+			convertedMessageParts = append(convertedMessageParts, textPart)
+		}
+	}
+
+	return convertedMessageParts, nil
+}
+
+func (m *Message) ConvertAttributedStringToFormattedHTMLParts(ctx context.Context, intent bridgev2.MatrixAPI, roomID id.RoomID, get_users func() ([]id.UserID, error)) ([]*bridgev2.ConvertedMessagePart, error) {
+	a := m.AttributedString
+	parts := []*bridgev2.ConvertedMessagePart{}
+	currentMessageUTF16Index := 0
+	currentMessageAttributePart := int64(0)
+	messageStringUTF16 := utf16.Encode([]rune(a.Value))
+
+	currentMessagePart := &bridgev2.ConvertedMessagePart{
+		Content: &event.MessageEventContent{
+			Body:     "",
+			Mentions: &event.Mentions{},
+		},
+	}
+
+	if parts, err := m.CreateURLPreview(); err == nil {
 		return parts, nil
 	}
 
-	attachmentIndex := 0
-	for componentIndex, combinedComponent := range m.CombinedComponents {
-		switch component := combinedComponent.(type) {
-		case CombinedComponentAttachment:
-			if attachmentIndex < len(m.Attachments) {
-				attachment := m.Attachments[attachmentIndex]
-				convertedAttachment := attachment.ConvertAttachmentToConvertedMessagePart(ctx, intent, roomId, &component.AttachmentMeta)
-				if attachment.IsSticker != 0 {
-					// Could do "more" here: https://github.com/ReagentX/imessage-exporter/blob/develop/imessage-exporter/src/exporters/html.rs#L626
-					switch attachment.StickerSource {
-					case StickerSourceGenmoji:
-						if attachment.EmojiImageShortDescription != "" {
-							convertedAttachment.Content.Body += fmt.Sprintf(" [Genmoji prompt: %s]", attachment.EmojiImageShortDescription)
+	for _, rangedAttribute := range a.RangedAttributes {
+		attributes := rangedAttribute.AttributeMap
+
+		substring := messageStringUTF16[currentMessageUTF16Index:(rangedAttribute.length + currentMessageUTF16Index)]
+		currentMessageUTF16Index += rangedAttribute.length
+		decodedSubstring := string(utf16.Decode(substring))
+		cleanSubstring := strings.ReplaceAll(decodedSubstring, "\ufffc", "")
+
+		if messageAttributePart, ok := attributes[MessagePartAttributeName]; ok {
+			if messageAttributePartAsInt, ok := messageAttributePart.(*int64); !ok {
+				return nil, fmt.Errorf("message attribute part was not an int")
+			} else if currentMessageAttributePart != *messageAttributePartAsInt {
+				parts = append(parts, currentMessagePart)
+				currentMessageAttributePart = *messageAttributePartAsInt
+				currentMessagePart = &bridgev2.ConvertedMessagePart{
+					Content: &event.MessageEventContent{
+						Body:     "",
+						Mentions: &event.Mentions{},
+					},
+				}
+			}
+		} else {
+			// All attribute ranges seem to contain a part so this might be a legitimate spot to error out?
+		}
+
+		currentMessagePart.Content.Body += cleanSubstring
+		currentMessagePart.Content.Format = event.FormatHTML
+
+		if fileGUID, ok := attributes[FileTransferGUIDAttributeName]; ok {
+			if fileGUIDString, ok := fileGUID.(*string); ok {
+				if attachment, ok := m.Attachments[*fileGUIDString]; ok {
+					attachmentMeta := &AttachmentMeta{}
+					if audioTranscriptionValue, ok := attributes[AudioTranscription]; ok {
+						if audioTransciption, ok := audioTranscriptionValue.(*string); ok {
+							attachmentMeta.Transcription = audioTransciption
 						}
-					case StickerSourceAnimoji, StickerSourceAnimojiJellyfish:
-						convertedAttachment.Content.Body += " [Animoji from Memoji]"
-					case StickerSourceUserGenerated:
-					case StickerSourceNone:
+					}
+					if heightValue, ok := attributes[InlineMediaHeightAttributeName]; ok {
+						if height, ok := heightValue.(*float64); ok {
+							attachmentMeta.Height = height
+						}
+					}
+					if widthValue, ok := attributes[InlineMediaWidthAttributeName]; ok {
+						if width, ok := widthValue.(*float64); ok {
+							attachmentMeta.Width = width
+						}
+					}
+					currentMessagePart = attachment.ConvertAttachmentToConvertedMessagePart(ctx, intent, roomID, attachmentMeta)
+
+					if attachment.IsSticker != 0 {
+						// Could do "more" here: https://github.com/ReagentX/imessage-exporter/blob/develop/imessage-exporter/src/exporters/html.rs#L626
+						switch attachment.StickerSource {
+						case StickerSourceGenmoji:
+							if attachment.EmojiImageShortDescription != "" {
+								currentMessagePart.Content.Body += fmt.Sprintf(" [Genmoji prompt: %s]", attachment.EmojiImageShortDescription)
+							}
+						case StickerSourceAnimoji, StickerSourceAnimojiJellyfish:
+							currentMessagePart.Content.Body += " [Animoji from Memoji]"
+						case StickerSourceUserGenerated:
+						case StickerSourceNone:
+						}
+					}
+				} else {
+					currentMessagePart = ErrorToMessagePart(fmt.Errorf("file GUID (%s) from message part was not found in attachments", *fileGUIDString))
+				}
+				// Nit: In theory an attachment message part _could_ have other styled content with it and this will skip that
+				continue
+			}
+		}
+
+		formattedSubstring := cleanSubstring
+
+		if _, ok := attributes[TextBoldAttributeName]; ok {
+			formattedSubstring = fmt.Sprintf("<b>%s</b>", formattedSubstring)
+		}
+		if _, ok := attributes[TextUnderlineAttributeName]; ok {
+			formattedSubstring = fmt.Sprintf("<u>%s</u>", formattedSubstring)
+		}
+		if _, ok := attributes[TextItalicAttributeName]; ok {
+			formattedSubstring = fmt.Sprintf("<i>%s</i>", formattedSubstring)
+		}
+		if _, ok := attributes[TextStrikethroughAttributeName]; ok {
+			formattedSubstring = fmt.Sprintf("<s>%s</s>", formattedSubstring)
+		}
+
+		if linkValue, ok := attributes[LinkAttributeName]; ok {
+			linkAddress := "Unable to convert link to string"
+			if link, ok := linkValue.(*string); ok && link != nil {
+				linkAddress = *link
+			}
+			formattedSubstring = fmt.Sprintf("<a href=\"%s\">%s</a>", linkAddress, formattedSubstring)
+		}
+
+		if strings.HasPrefix(formattedSubstring, FITNESS_RECEIVER) {
+			formattedSubstring = strings.Replace(formattedSubstring, FITNESS_RECEIVER, "", 1)
+		}
+
+		if calendarValue, ok := attributes[CalendarEventAttributeName]; ok {
+			if calendarPlistBytes, ok := calendarValue.([]byte); !ok {
+				return nil, fmt.Errorf("calendar attribute could not be coerced to bytes: %f", calendarValue)
+			} else {
+				calendarPlistDictionary := make(map[string]any, 0)
+				if err := plist.NewDecoder(bytes.NewReader(calendarPlistBytes)).Decode(calendarPlistDictionary); err != nil {
+					return nil, fmt.Errorf("decoding plist to calendarPlistDictionary: %w", err)
+				}
+				if objects, ok := calendarPlistDictionary["$objects"]; !ok {
+					return nil, fmt.Errorf("calendar plist did not contain objects list")
+				} else {
+					if objectsAsList, ok := objects.([]any); !ok {
+						return nil, fmt.Errorf("objects was not coercable to list: %f", objects)
+					} else {
+						for j, object := range objectsAsList {
+							if objectString, ok := object.(string); ok && objectString == "DateTime" {
+								previousObject := objectsAsList[j-1]
+								if previousObjectString, ok := previousObject.(string); ok {
+									if eventTime, err := BestEffortDateTimeParse(previousObjectString, m.CreatedAt); err == nil {
+										ics := TimeToICS(eventTime)
+										icsBase64 := base64.URLEncoding.EncodeToString([]byte(ics))
+										href := fmt.Sprintf("data:text/calendar;base64,%s", icsBase64)
+										formattedSubstring = fmt.Sprintf("<a href=\"%s\">%s</a>", href, formattedSubstring)
+									}
+								}
+							}
+						}
 					}
 				}
-				parts = append(parts, convertedAttachment)
+			}
+		}
+
+		if _, ok := attributes[OneTimeCodeAttributeName]; ok {
+			// TODO: is a copy-able html element a thing yet?
+			formattedSubstring = fmt.Sprintf("<pre>%s</pre>", formattedSubstring)
+		}
+
+		if effectValue, ok := attributes[TextEffectAttributeName]; ok {
+			effect := ""
+			if effectInt, ok := effectValue.(*int64); ok {
+				effectType := EffectType(*effectInt)
+				effect = effectType.String()
 			} else {
-				parts = append(parts, ErrorToMessagePart(errors.New("attachment does not exist")))
+				effect = fmt.Sprintf("wrong-type-%T", effectValue)
 			}
-		case CombinedComponentText:
-			if len(m.AttributedBodyText) > 0 {
-				if convertedMessage := m.ConvertAttributesToMessagePart(component.TextRangeEffects, componentIndex); convertedMessage != nil {
-					parts = append(parts, convertedMessage)
+			formattedSubstring = fmt.Sprintf("<span class=\"%s\">%s</span>", effect, formattedSubstring)
+		}
+
+		if mentionValue, ok := attributes[MentionConfirmedMention]; ok {
+			if mentionString, ok := mentionValue.(*string); ok {
+				// Only want to call this if we have to? Except we'll call it for each mention...
+				// Better than for every message in any case
+				if users, err := get_users(); err == nil {
+					for _, user := range users {
+						if strings.Contains(string(user), *mentionString) {
+							mentionID := string(user)
+							mentionURL := fmt.Sprintf("https://matrix.to/#/%s", mentionID)
+							formattedSubstring = fmt.Sprintf("<a href=\"%s\">%s</a>", mentionURL, formattedSubstring)
+							currentMessagePart.Content.Mentions.Add(id.UserID(mentionID))
+							break
+						}
+					}
 				}
 			}
-		case CombinedComponentRetraction:
-			if len(m.EditedMessageParts) != 0 {
-				if convertedEditedMessagePart := m.ConvertEditedMessagePart(componentIndex); convertedEditedMessagePart != nil {
-					parts = append(parts, convertedEditedMessagePart)
+		}
+
+		currentMessagePart.Content.FormattedBody += formattedSubstring
+
+		/* TODO:
+		MoneyAttributeName
+		DataDetectedAttributeName
+		PhoneNumberAttributeName
+		AddressAttributeName
+		*/
+	}
+	parts = append(parts, currentMessagePart)
+
+	return parts, nil
+}
+
+func (m *Message) ConvertAppMessageToMessageParts(ctx context.Context, intent bridgev2.MatrixAPI, roomID id.RoomID) ([]*bridgev2.ConvertedMessagePart, error) {
+	bundleID := m.BalloonBundleID
+	if strings.Contains(bundleID, ":") {
+		parts := strings.Split(bundleID, ":")
+		if len(parts) != 3 {
+			return nil, fmt.Errorf("undexpected number of parts in balloon bundle ID: %d (%s)", len(parts), bundleID)
+		}
+		bundleID = parts[2]
+	}
+
+	if bundleID == "com.apple.messages.URLBalloonProvider" {
+		return m.CreateURLPreview()
+	}
+
+	if bundleID == "com.apple.gamecenter.GameCenterUIService.GameCenterMessageExtension" {
+		return m.ConvertFirstBreadcrumbAndAttachmentToMessageParts(ctx, intent, roomID, "Game Center")
+	}
+
+	if bundleID == "com.americanexpress.amexservice.imessage" {
+		return m.ConvertFirstBreadcrumbAndAttachmentToMessageParts(ctx, intent, roomID, "American Express Service")
+	}
+
+	if bundleID == "com.apple.findmy.FindMyMessagesApp" {
+		return m.ConvertFirstBreadcrumbToMessageParts("Find My")
+	}
+
+	if bundleID == "com.apple.messages.chatbot" {
+		return m.ConvertChatBotMessageToParts(ctx, intent, roomID)
+	}
+
+	// TODO: Other bundle IDs:
+	// com.apple.messages.chatbot
+	// com.apple.Handwriting.HandwritingProvider
+	// com.apple.DigitalTouchBalloonProvider
+	// com.apple.PassbookUIService.PeerPaymentMessagesExtension
+	// com.apple.ActivityMessagesApp.MessagesExtension
+	// com.apple.mobileslideshow.PhotosMessagesApp
+	// com.apple.SafetyMonitorApp.SafetyMonitorMessages
+	// com.apple.findmy.FindMyMessagesApp
+	// https://github.com/ReagentX/imessage-exporter/blob/0ce28702ef58c3eef40b96cc4dc3b80ed84138e8/imessage-exporter/src/exporters/html.rs#L687
+	return nil, fmt.Errorf("unsupported App message: %s", bundleID)
+}
+
+func (m *Message) CreateURLPreview() ([]*bridgev2.ConvertedMessagePart, error) {
+	if len(m.AttributedString.RangedAttributes) == 1 {
+		if _, ok := m.AttributedString.RangedAttributes[0].AttributeMap[LinkAttributeName]; ok && m.PayloadData != nil {
+			if flatPlistData, err := FlatObjectMapFromPlistData(m.PayloadData, "root"); err == nil {
+				if urlPreview, err := URLPreviewFromFlatPlistData(flatPlistData); err == nil {
+					return []*bridgev2.ConvertedMessagePart{&bridgev2.ConvertedMessagePart{
+						Content: &event.MessageEventContent{
+							Body:          m.AttributedString.Value,
+							Format:        event.FormatHTML,
+							FormattedBody: urlPreview,
+							Mentions:      &event.Mentions{},
+						},
+					}}, nil
+				} else {
+					return nil, fmt.Errorf("creating URL preview from plist data: %w", err)
 				}
+			} else {
+				return nil, fmt.Errorf("getting object map from payload plist data: %w", err)
 			}
-		default:
-			panic(fmt.Sprintf("invalid type: %T", component))
+		} else {
+			return nil, fmt.Errorf("first attributed string range did not contain link (%t) or payload was null (%t)", !ok, m.PayloadData == nil)
+		}
+	} else {
+		return nil, fmt.Errorf("more than one attributed string range in message: %d ranges", len(m.AttributedString.RangedAttributes))
+	}
+}
+
+func (m *Message) ConvertFirstBreadcrumbAndAttachmentToMessageParts(ctx context.Context, intent bridgev2.MatrixAPI, roomID id.RoomID, messageType string) ([]*bridgev2.ConvertedMessagePart, error) {
+	if len(m.Attachments) == 0 {
+		return nil, fmt.Errorf("no attachments in %s message", messageType)
+	}
+
+	var attachmentIDValue, messageValue any
+	attachmentID := ""
+	message := ""
+	var ok bool
+	for _, attributes := range m.AttributedString.RangedAttributes {
+		if attachmentIDValue, ok = attributes.AttributeMap[FileTransferGUIDAttributeName]; ok {
+			if attachmentIDString, ok := attachmentIDValue.(*string); ok {
+				attachmentID = *attachmentIDString
+			}
+		}
+		if messageValue, ok = attributes.AttributeMap[BreadcrumbTextMarkerAttributeName]; ok {
+			if messageString, ok := messageValue.(*string); ok {
+				message = *messageString
+			}
 		}
 	}
 
-	if len(parts) == 0 {
-		// If no other combined components produced parts, add message text as a part
-		if textPart := m.ConvertMessageText(); textPart != nil {
-			parts = append(parts, textPart)
+	if attachmentID == "" {
+		return nil, fmt.Errorf("no attahment ID found in %s message", messageType)
+	}
+	if message == "" {
+		return nil, fmt.Errorf("no message found in %s message", messageType)
+	}
+
+	if attachment, ok := m.Attachments[attachmentID]; ok {
+		currentMessagePart := attachment.ConvertAttachmentToConvertedMessagePart(ctx, intent, roomID, &AttachmentMeta{})
+		currentMessagePart.Content.Body = fmt.Sprintf("%s: %s", messageType, message)
+		return []*bridgev2.ConvertedMessagePart{currentMessagePart}, nil
+	} else {
+		return nil, fmt.Errorf("attachment was not found in %s message", messageType)
+	}
+}
+
+func (m *Message) ConvertFirstBreadcrumbToMessageParts(messageType string) ([]*bridgev2.ConvertedMessagePart, error) {
+	var messageValue any
+	message := ""
+	var ok bool
+	for _, attributes := range m.AttributedString.RangedAttributes {
+		if messageValue, ok = attributes.AttributeMap[BreadcrumbTextMarkerAttributeName]; ok {
+			if messageString, ok := messageValue.(*string); ok {
+				message = *messageString
+			}
 		}
 	}
 
-	for i, part := range parts {
-		part.ID = networkid.PartID(strconv.Itoa(i))
+	if message == "" {
+		return nil, fmt.Errorf("no message found in %s message", messageType)
+	}
+
+	return []*bridgev2.ConvertedMessagePart{&bridgev2.ConvertedMessagePart{
+		Type: event.EventMessage,
+		Content: &event.MessageEventContent{
+			MsgType: event.MsgText,
+			Body:    fmt.Sprintf("%s: %s", messageType, message),
+		},
+	}}, nil
+}
+
+func (m *Message) ConvertChatBotMessageToParts(ctx context.Context, intent bridgev2.MatrixAPI, roomID id.RoomID) ([]*bridgev2.ConvertedMessagePart, error) {
+	parts := []*bridgev2.ConvertedMessagePart{}
+
+	for _, attribute := range m.AttributedString.RangedAttributes {
+		transferMap := map[string]any{}
+		cards := []any{}
+		if transferMapValue, ok := attribute.AttributeMap[URLToTransferMapAttributeName]; ok {
+			if transferMapMap, ok := transferMapValue.(map[string]any); ok {
+				transferMap = transferMapMap
+			}
+		}
+		if cardsValue, ok := attribute.AttributeMap[RichCardsAttributeName]; ok {
+			if cardsValueArray, ok := cardsValue.([]any); ok {
+				cards = cardsValueArray
+			}
+		}
+		for _, card := range cards {
+			if cardMap, ok := card.(map[string]any); ok {
+				parts = append(parts, m.ConvertCardToMessageParts(ctx, intent, roomID, cardMap, transferMap)...)
+			}
+		}
 	}
 
 	return parts, nil
 }
 
-func (m *Message) ConvertAppMessageToMessagePart() *bridgev2.ConvertedMessagePart {
-	// TODO: Literally anything
-	// https://github.com/ReagentX/imessage-exporter/blob/develop/imessage-exporter/src/exporters/html.rs#L672
-	return ErrorToMessagePart(errors.New("unsupported App message"))
+func (m *Message) ConvertCardToMessageParts(ctx context.Context, intent bridgev2.MatrixAPI, roomID id.RoomID, card map[string]any, transferMap map[string]any) []*bridgev2.ConvertedMessagePart {
+	parts := []*bridgev2.ConvertedMessagePart{}
+
+	if media, err := GetValueAsTypeFromMapKey[map[string]any](card, "media"); err == nil {
+		if mediaUrl, err := GetValueAsTypeFromMapKey[*string](*media, "mediaUrl"); err == nil {
+			if attachmentGUIDValue, ok := transferMap[**mediaUrl]; ok {
+				if attachmentGUID, ok := attachmentGUIDValue.(*string); ok {
+					if attachment, ok := m.Attachments[*attachmentGUID]; ok {
+						parts = append(parts, attachment.ConvertAttachmentToConvertedMessagePart(ctx, intent, roomID, &AttachmentMeta{}))
+					}
+				}
+			}
+		}
+	}
+
+	m.Subject = "No title found"
+	m.Text = "No card description found"
+	if titleString, err := GetValueAsTypeFromMapKey[*string](card, "title"); err == nil {
+		m.Subject = **titleString
+	}
+	if cardDescriptionString, err := GetValueAsTypeFromMapKey[*string](card, "cardDescription"); err == nil {
+		m.Text = **cardDescriptionString
+	}
+
+	parts = append(parts, m.ConvertMessageText())
+
+	return parts
 }
 
 func (m *Message) ConvertMessageText() *bridgev2.ConvertedMessagePart {
@@ -397,122 +615,4 @@ func (m *Message) ConvertMessageText() *bridgev2.ConvertedMessagePart {
 		part.Content.Body = fmt.Sprintf("**%s**\n%s", m.Subject, m.Text)
 	}
 	return part
-}
-
-func (m *Message) ConvertEditedMessagePart(componentIndex int) *bridgev2.ConvertedMessagePart {
-	editedMessageParts := m.EditedMessageParts
-
-	if componentIndex >= len(editedMessageParts) {
-		return nil
-	}
-	convertedMessagePart := &bridgev2.ConvertedMessagePart{
-		Type: event.EventMessage,
-	}
-	editedMessagePart := editedMessageParts[componentIndex]
-	switch editedMessagePart.Status {
-	case EditedMessageStatusEdited:
-		if len(editedMessagePart.EditHistory) < 1 {
-			convertedMessagePart.Content = &event.MessageEventContent{
-				MsgType: event.MsgNotice,
-				Body:    "Message edited but contained no edit history",
-			}
-			break
-		}
-		finalEdit := editedMessagePart.EditHistory[len(editedMessagePart.EditHistory)-1]
-		if finalEdit.Text == nil {
-			convertedMessagePart.Content = &event.MessageEventContent{
-				MsgType: event.MsgNotice,
-				Body:    "Message edited but final edit contained no text",
-			}
-			break
-		}
-		text := *finalEdit.Text
-
-		convertedMessagePart.Content = &event.MessageEventContent{
-			MsgType: event.MsgText,
-			Body:    template.HTMLEscapeString(text),
-		}
-
-		finalEditCombinedComponents := ConvertArchivablesToCombinedComponents(finalEdit.Components, finalEdit.Text)
-		if len(finalEditCombinedComponents) > 0 {
-			lastFinalEditCombinedComponent := finalEditCombinedComponents[len(finalEditCombinedComponents)-1]
-			if combinedComponentText, ok := lastFinalEditCombinedComponent.(CombinedComponentText); ok {
-				if len(combinedComponentText.TextRangeEffects) > 0 {
-					convertedMessagePart.Content.Format = event.FormatHTML
-					convertedMessagePart.Content.FormattedBody = FormatTextRangeEffectsOnText(text, combinedComponentText.TextRangeEffects)
-					break
-				}
-			}
-		}
-
-	case EditedMessageStatusUnsent:
-		who := "You"
-		if !m.IsFromMe {
-			who = "Sender"
-		}
-		suffix := "."
-		if !m.EditedAt.IsZero() {
-			if readableDateTimeDiff := dateTimeDiff(m.CreatedAt, m.EditedAt); readableDateTimeDiff != "" {
-				suffix = fmt.Sprintf(" %s after sending%s", readableDateTimeDiff, suffix)
-			}
-		}
-		convertedMessagePart.Content = &event.MessageEventContent{
-			MsgType: event.MsgNotice,
-			Body:    fmt.Sprintf("%s unsent this message part%s", who, suffix),
-		}
-		if !m.IsFromMe {
-			username := "temp"
-			server := "temp"
-			name := "temp"
-			convertedMessagePart.Content.Format = event.FormatHTML
-			convertedMessagePart.Content.FormattedBody = fmt.Sprintf("%s unsent this message part%s", GetMentionText(username, server, name), suffix)
-		}
-	case EditedMessageStatusOriginal:
-		return nil
-	}
-	return convertedMessagePart
-}
-
-func (a *Attachment) ConvertAttachmentToConvertedMessagePart(ctx context.Context, intent bridgev2.MatrixAPI, roomId id.RoomID, attachmentMeta *AttachmentMeta) *bridgev2.ConvertedMessagePart {
-	attachmentData, err := a.Read()
-	if err != nil {
-		return ErrorToMessagePart(fmt.Errorf("reading attachment failed: %w", err))
-	}
-	mimeType := a.GetMimeType()
-	fileName := a.FileName
-
-	convertedMessagePart := &bridgev2.ConvertedMessagePart{
-		Type: event.EventMessage,
-		Content: &event.MessageEventContent{
-			Body: fileName,
-			Info: &event.FileInfo{
-				MimeType: mimeType,
-				Size:     len(attachmentData),
-			},
-		},
-	}
-
-	url, file, err := intent.UploadMedia(ctx, roomId, attachmentData, fileName, mimeType)
-	if err != nil {
-		return ErrorToMessagePart(fmt.Errorf("%w: %w", bridgev2.ErrMediaReuploadFailed, err))
-	}
-	convertedMessagePart.Content.URL = url
-	convertedMessagePart.Content.File = file
-
-	switch {
-	case strings.HasPrefix(mimeType, "image"):
-		convertedMessagePart.Content.Info.Height = int(*attachmentMeta.Height)
-		convertedMessagePart.Content.Info.Width = int(*attachmentMeta.Width)
-		convertedMessagePart.Content.MsgType = event.MsgImage
-	case strings.HasPrefix(mimeType, "video"):
-		convertedMessagePart.Content.MsgType = event.MsgVideo
-	case strings.HasPrefix(mimeType, "audio"):
-		convertedMessagePart.Content.MsgType = event.MsgAudio
-		if len(*attachmentMeta.Transcription) != 0 {
-			convertedMessagePart.Content.Body += fmt.Sprintf(" | Transcript: %s", *attachmentMeta.Transcription)
-		}
-	default:
-		convertedMessagePart.Content.MsgType = event.MsgFile
-	}
-	return convertedMessagePart
 }

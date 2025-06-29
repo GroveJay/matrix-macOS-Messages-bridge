@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +19,44 @@ import (
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/event"
 )
+
+const (
+	MACOS_16_MESSAGES_COLUMNS    = 95
+	MACOS_14_MESSAGES_COLUMNS    = 88
+	MACOS_16_ATTACHMENTS_COLUMNS = 27
+	MACOS_14_ATTACHMENTS_COLUMNS = 24
+)
+
+type ReadReceipt struct {
+	ChatGUID   string
+	ReadUpTo   string
+	ReadAt     time.Time
+	IsFromMe   bool
+	SenderGUID string
+}
+
+func ParseIdentifier(identifier string) Identifier {
+	if len(identifier) == 0 {
+		return Identifier{}
+	}
+	parts := strings.Split(identifier, ";")
+	return Identifier{
+		Service: parts[0],
+		IsGroup: parts[1] == "+",
+		LocalID: parts[2],
+	}
+}
+
+func (id Identifier) String() string {
+	if len(id.LocalID) == 0 {
+		return ""
+	}
+	typeChar := '-'
+	if id.IsGroup {
+		typeChar = '+'
+	}
+	return fmt.Sprintf("%s;%c;%s", id.Service, typeChar, id.LocalID)
+}
 
 type MacOSMessagesClient struct {
 	log                    *zerolog.Logger
@@ -76,7 +113,6 @@ func GetMessagesClient(userName string, logger *zerolog.Logger) (*MacOSMessagesC
 }
 
 func (c MacOSMessagesClient) ValidateConnection() error {
-
 	return nil
 }
 
@@ -301,10 +337,9 @@ func (c *MacOSMessagesClient) getGroupMembers(chatID string) (users []networkid.
 	return users, nil
 }
 
-func OS16MessagesScan(res *sql.Rows, message *Message, attributedBody *[]byte, messageSummaryInfo *[]byte, tapback *Tapback, threadOriginatorPartString *string) error {
+func OS16MessagesScan(res *sql.Rows, message *Message, messageSummaryInfo *[]byte, tapback *Tapback, threadOriginatorPartString *string) error {
 	var dummyText sql.NullString
 	var dummyInt sql.NullInt64
-	var dummyBlob []byte
 
 	var messageText sql.NullString
 	var messageSubject sql.NullString
@@ -319,13 +354,14 @@ func OS16MessagesScan(res *sql.Rows, message *Message, attributedBody *[]byte, m
 	var tapbackTargetGUID sql.NullString
 	var tapbackEmoji sql.NullString
 
+	// TODO add expressive_send_style_id here
 	err := res.Scan(
-		&message.RowID, &message.GUID, &messageText, &dummyInt, &dummyText, &dummyInt, &messageSubject, &dummyText, attributedBody, &dummyInt,
+		&message.RowID, &message.GUID, &messageText, &dummyInt, &dummyText, &dummyInt, &messageSubject, &dummyText, &message.AttributedBody, &dummyInt,
 		&dummyInt, &dummyText, &dummyText, &dummyText, &dummyInt, &message.Date, &message.DateRead, &dummyInt, &message.IsDelivered, &dummyInt,
 		&message.IsEmote, &message.IsFromMe, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &message.IsSent, &dummyInt,
 		&dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyText, &dummyInt, &dummyInt, &message.IsAudioMessage, &dummyInt,
 		&dummyInt, &message.ItemType, &dummyInt, &newGroupTitle, &message.GroupActionType, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt,
-		&dummyInt, &tapbackTargetGUID, &tapback.Type, &balloonBundleID, &dummyBlob, &dummyText, &dummyInt, &dummyInt, &dummyInt, messageSummaryInfo,
+		&dummyInt, &tapbackTargetGUID, &tapback.Type, &balloonBundleID, &message.PayloadData, &dummyText, &dummyInt, &dummyInt, &dummyInt, messageSummaryInfo,
 		&dummyInt, &dummyText, &dummyText, &dummyText, &dummyInt, &dummyText, &dummyText, &dummyInt, &dummyText, &dummyInt,
 		&dummyInt, &dummyInt, &threadOriginatorGUID, &threadOriginatorPart, &dummyText, &dummyInt, &dummyInt, &dummyText, &message.DateRetracted, &message.DateEdited,
 		&dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyText, &dummyInt, &dummyText, &tapbackEmoji, &dummyInt,
@@ -356,10 +392,9 @@ func OS16MessagesScan(res *sql.Rows, message *Message, attributedBody *[]byte, m
 	return err
 }
 
-func OS14MessagesScan(res *sql.Rows, message *Message, attributedBody *[]byte, messageSummaryInfo *[]byte, tapback *Tapback, threadOriginatorPartString *string) error {
+func OS14MessagesScan(res *sql.Rows, message *Message, messageSummaryInfo *[]byte, tapback *Tapback, threadOriginatorPartString *string) error {
 	var dummyText sql.NullString
 	var dummyInt sql.NullInt64
-	var dummyBlob []byte
 
 	var messageText sql.NullString
 	var messageSubject sql.NullString
@@ -374,12 +409,12 @@ func OS14MessagesScan(res *sql.Rows, message *Message, attributedBody *[]byte, m
 	var tapbackTargetGUID sql.NullString
 
 	err := res.Scan(
-		&message.RowID, &message.GUID, &messageText, &dummyInt, &dummyText, &dummyInt, &messageSubject, &dummyText, attributedBody, &dummyInt,
+		&message.RowID, &message.GUID, &messageText, &dummyInt, &dummyText, &dummyInt, &messageSubject, &dummyText, &message.AttributedBody, &dummyInt,
 		&dummyInt, &dummyText, &dummyText, &dummyText, &dummyInt, &message.Date, &message.DateRead, &dummyInt, &message.IsDelivered, &dummyInt,
 		&message.IsEmote, &message.IsFromMe, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &message.IsSent, &dummyInt,
 		&dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyText, &dummyInt, &dummyInt, &message.IsAudioMessage, &dummyInt,
 		&dummyInt, &message.ItemType, &dummyInt, &newGroupTitle, &message.GroupActionType, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt,
-		&dummyInt, &tapbackTargetGUID, &tapback.Type, &balloonBundleID, &dummyBlob, &dummyText, &dummyInt, &dummyInt, &dummyInt, messageSummaryInfo,
+		&dummyInt, &tapbackTargetGUID, &tapback.Type, &balloonBundleID, &message.PayloadData, &dummyText, &dummyInt, &dummyInt, &dummyInt, messageSummaryInfo,
 		&dummyInt, &dummyText, &dummyText, &dummyText, &dummyInt, &dummyText, &dummyText, &dummyInt, &dummyText, &dummyInt,
 		&dummyInt, &dummyInt, &threadOriginatorGUID, &threadOriginatorPart, &dummyText, &dummyInt, &dummyInt, &dummyText, &message.DateRetracted, &message.DateEdited,
 		&dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyText, &dummyInt, &dummyText,
@@ -409,18 +444,17 @@ func OS14MessagesScan(res *sql.Rows, message *Message, attributedBody *[]byte, m
 	return err
 }
 
-func GetMessagesScanFunctionForColumns(res *sql.Rows) (func(res *sql.Rows, message *Message, attributedBody *[]byte, messageSummaryInfo *[]byte, tapback *Tapback, threadOriginatorPartString *string) error, error) {
+func GetMessagesScanFunctionForColumns(res *sql.Rows) (func(res *sql.Rows, message *Message, messageSummaryInfo *[]byte, tapback *Tapback, threadOriginatorPartString *string) error, error) {
 	columns, err := res.Columns()
 	if err != nil {
 		err = fmt.Errorf("getting columns for messages query: %w", err)
 		return nil, err
 	}
 	// TODO: Actually check the columns are exactly as expected
-	// TODO: Move Magic Numbers
 	columnCount := len(columns)
-	if columnCount == (95 + 6) {
+	if columnCount == (MACOS_16_MESSAGES_COLUMNS + 6) {
 		return OS16MessagesScan, nil
-	} else if columnCount == (88 + 6) {
+	} else if columnCount == (MACOS_14_MESSAGES_COLUMNS + 6) {
 		return OS14MessagesScan, nil
 	} else {
 		return nil, fmt.Errorf("unrecognized column count (%d) in Message 'message' database", columnCount)
@@ -512,12 +546,11 @@ func GetAttachmentsScanFunctionForColumns(attachmentRows *sql.Rows) (func(attach
 		err = fmt.Errorf("getting columns for attachments query: %w", err)
 		return nil, err
 	}
-	// TODO: Actually check the columns are exactly as expected
-	// TODO: Move Magic Numbers
+	// TODO: Check the columns are exactly as expected
 	columnCount := len(columns)
-	if columnCount == 27 {
+	if columnCount == MACOS_16_ATTACHMENTS_COLUMNS {
 		return OS16AttachmentScan, nil
-	} else if columnCount == 24 {
+	} else if columnCount == MACOS_14_ATTACHMENTS_COLUMNS {
 		return OS14AttachmentScan, nil
 	} else {
 		return nil, fmt.Errorf("unrecognized column count (%d) in Message 'attachment' database", columnCount)
@@ -529,16 +562,15 @@ func (c *MacOSMessagesClient) parseMessages(res *sql.Rows) ([]*Message, error) {
 	if err != nil {
 		return nil, fmt.Errorf("getting row scan function: %w", err)
 	}
+	// TODO: allocate this ahead of time to avoid excessive appends
 	messages := []*Message{}
-
 	for res.Next() {
 		var message Message
 		var tapback Tapback
-		var attributedBody []byte
 		var messageSummaryInfo []byte
 
 		var threadOriginatorPart string
-		err = messagesScanFunction(res, &message, &attributedBody, &messageSummaryInfo, &tapback, &threadOriginatorPart)
+		err = messagesScanFunction(res, &message, &messageSummaryInfo, &tapback, &threadOriginatorPart)
 		if err != nil {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
@@ -556,7 +588,7 @@ func (c *MacOSMessagesClient) parseMessages(res *sql.Rows) ([]*Message, error) {
 			message.RetractedAt = time.Unix(AppleEpochUnix, message.DateRetracted)
 			message.IsRetracted = true
 		}
-		message.Attachments = make([]*Attachment, 0)
+		message.Attachments = map[string]*Attachment{}
 		attachmentRows, err := c.attachmentsQuery.Query(message.RowID)
 		if err != nil {
 			return nil, fmt.Errorf("querying attachments for %d: %w", message.RowID, err)
@@ -577,30 +609,20 @@ func (c *MacOSMessagesClient) parseMessages(res *sql.Rows) ([]*Message, error) {
 				if err := plist.NewDecoder(bytes.NewReader(stickerUserInfo)).Decode(plistDictionary); err != nil {
 					return nil, fmt.Errorf("decoding plist to plistDictionary: %w", err)
 				}
-				pid, err := GetValueAsStringFromMapKey(plistDictionary, "pid")
+				pid, err := GetValueAsTypeFromMapKey[string](plistDictionary, "pid")
 				if err != nil {
 					return nil, fmt.Errorf("finding pid key in plistDictionary: %w", err)
 				}
-				var pidAsInterface interface{} = *pid
-				if stickerSource, ok := pidAsInterface.(StickerSource); !ok {
-					attachment.StickerSource = stickerSource
-				}
+				attachment.StickerSource = StickerSource(*pid)
 			}
 			// TODO: add attribution_info parsing, meh
-			message.Attachments = append(message.Attachments, &attachment)
+			message.Attachments[attachment.GUID] = &attachment
 		}
-		if len(attributedBody) > 0 {
-			if components, err := DecodeTypedStreamComponents(attributedBody); err != nil {
-				c.log.Warn().Msgf("[%d] failed to decode attributedBody of %s: %v", message.RowID, message.GUID, err)
+		if len(message.AttributedBody) > 0 {
+			if attributedString, err := DecodeStreamTypedComponents(message.AttributedBody); err != nil {
+				return nil, fmt.Errorf("[%d] failed to decode attributedBody of %s: %v", message.RowID, message.GUID, err)
 			} else {
-				message.Components = components
-				attributedBodyText := GetTextFromComponents(components)
-				if attributedBodyText != nil {
-					message.AttributedBodyText = *attributedBodyText
-					if message.BalloonBundleID == "" {
-						message.CombinedComponents = ConvertArchivablesToCombinedComponents(components, attributedBodyText)
-					}
-				}
+				message.AttributedString = *attributedString
 			}
 		}
 		if len(messageSummaryInfo) > 0 {
@@ -611,16 +633,6 @@ func (c *MacOSMessagesClient) parseMessages(res *sql.Rows) ([]*Message, error) {
 			} else {
 				if !message.IsEdited && len(editedMessageParts) > 1 {
 					c.log.Warn().Msgf("[%d] message has message_summary_info of length %d but was not edited!", message.RowID, len(editedMessageParts))
-				}
-				for index, editedMessagePart := range editedMessageParts {
-					if editedMessagePart.Status == EditedMessageStatusUnsent {
-						retractedComponent := CombinedComponentRetraction{}
-						if index >= len(message.CombinedComponents) {
-							message.CombinedComponents = append(message.CombinedComponents, retractedComponent)
-						} else {
-							message.CombinedComponents = slices.Insert[[]CombinedComponent, CombinedComponent](message.CombinedComponents, index, retractedComponent)
-						}
-					}
 				}
 				message.EditedMessageParts = editedMessageParts
 			}

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/GroveJay/matrix-macOS-Messages-bridge/pkg/connector"
@@ -49,11 +50,12 @@ func test_oascript_vcard_image() {
 	f.Write(imageBytes)
 }
 
-func checkError(err error) {
+func checkError(err error) bool {
 	if err != nil {
-		// println("Error: " + err.Error())
-		panic(err)
+		fmt.Print(err.Error())
+		return true
 	}
+	return false
 }
 
 func test_get_chat_details() {
@@ -128,23 +130,59 @@ func test_parse_message_summary_info() {
 	}
 }
 
-func test_parse_attributed_body() {
-	r := []byte{}
-	components, err := macos.DecodeTypedStreamComponents(r)
-	checkError(err)
-	println(fmt.Sprintf("Got %d components", len(components)))
-}
-
-func test_parse_all_messages() {
+func test_parse_all_messages(dumpAttributedBodyToFiles bool) {
 	logger, err := prepareLog([]byte(logConfig))
 	checkError(err)
 	messagesClient, err := macos.GetMessagesClient("foobar", logger)
 	checkError(err)
-	//messages, err := messagesClient.GetMessagesBetween(33490, 33499)
-	messages, err := messagesClient.GetMessagesNewerThan(0)
+	messages, err := messagesClient.GetMessagesNewerThan(0) // 772582691221725952
 	checkError(err)
-	println(fmt.Sprintf("parsed %d messages", len(messages)))
+	testHandleMessages(messages, dumpAttributedBodyToFiles, logger)
+}
 
+func check_balloon_bundle_payload_data(message macos.Message) {
+	if message.PayloadData != nil {
+		if len(message.AttributedString.RangedAttributes) == 1 {
+			onlyRangedAttribute := message.AttributedString.RangedAttributes[0]
+			if _, ok := onlyRangedAttribute.AttributeMap[macos.LinkAttributeName]; ok {
+				// write_bytes_to_filename(fmt.Sprintf("%d-SingleLink-PayloadData", message.RowID), message.PayloadData)
+				test, err := macos.FlatObjectMapFromPlistData(message.PayloadData, "root")
+				checkError(err)
+				fmt.Printf("%s\n", test)
+			}
+			fmt.Printf("\n")
+		} else {
+			fmt.Printf("Too many attributed string ranges to tell?\n")
+		}
+	}
+}
+
+func write_bytes_to_filename(fileName string, contents []byte) {
+	f, err := os.Create(fileName)
+	checkError(err)
+	f.Write([]byte(contents))
+	f.Close()
+}
+
+func test_parse_surrounding_messages(messageID string) {
+	logger, err := prepareLog([]byte(logConfig))
+	checkError(err)
+	messagesClient, err := macos.GetMessagesClient("foobar", logger)
+	checkError(err)
+	messageIDNumber, err := strconv.ParseInt(messageID, 10, 64)
+	checkError(err)
+	startID := messageIDNumber - 1
+	endID := messageIDNumber + 1
+	messages, err := messagesClient.GetMessagesBetween(int(startID), int(endID))
+	checkError(err)
+	for _, message := range messages {
+		check_balloon_bundle_payload_data(*message)
+	}
+	// testHandleMessages(messages, true, logger)
+}
+
+func testHandleMessages(messages []*macos.Message, dump bool, logger *zerolog.Logger) {
+	println(fmt.Sprintf("parsing %d message(s)", len(messages)))
 	mc := &connector.MessagesClient{
 		UserLogin: &bridgev2.UserLogin{
 			UserLogin: &database.UserLogin{
@@ -156,6 +194,9 @@ func test_parse_all_messages() {
 	}
 
 	for _, message := range messages {
+		if dump {
+			write_bytes_to_filename(fmt.Sprintf("%d-attributedBody", message.RowID), message.AttributedBody)
+		}
 		mc.HandleiMessage(message)
 	}
 }
@@ -167,6 +208,32 @@ func test_parse_phone_number() {
 	println(fmt.Sprintf("got phone: %s", *formattedPhoneNumber))
 }
 
+func test_decode_stream_typed(file string) {
+	attributedBody, err := os.ReadFile(file)
+	checkError(err)
+	m, err := macos.DecodeStreamTypedComponents(attributedBody)
+	if checkError(err) {
+		return
+	}
+	println(fmt.Sprintf("%s\n%d ranges\n%s", m.Value, len(m.RangedAttributes), m))
+
+	/*
+		parts, err := m.ConvertAttributedStringToFormattedHTMLParts()
+		checkError(err)
+		println(fmt.Sprintf("\n%d parts", len(parts)))
+	*/
+}
+
 func main() {
-	test_get_chat_details()
+	if len(os.Args) > 1 {
+		args := os.Args[1:]
+		firstArg := args[0]
+		if strings.Contains(firstArg, "-attributedBody") {
+			test_decode_stream_typed(firstArg)
+		} else {
+			test_parse_surrounding_messages(firstArg)
+		}
+	} else {
+		test_parse_all_messages(false)
+	}
 }

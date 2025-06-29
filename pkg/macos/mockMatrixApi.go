@@ -105,7 +105,7 @@ func (m *MockMatrixAPI) TagRoom(ctx context.Context, roomID id.RoomID, tag event
 
 // UploadMedia implements bridgev2.MatrixAPI.
 func (m *MockMatrixAPI) UploadMedia(ctx context.Context, roomID id.RoomID, data []byte, fileName string, mimeType string) (url id.ContentURIString, file *event.EncryptedFileInfo, err error) {
-	panic("unimplemented")
+	return "", nil, nil
 }
 
 // UploadMediaStream implements bridgev2.MatrixAPI.
