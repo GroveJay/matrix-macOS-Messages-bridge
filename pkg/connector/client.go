@@ -171,27 +171,33 @@ func (m *MessagesClient) GetCapabilities(ctx context.Context, portal *bridgev2.P
 }
 
 func (m *MessagesClient) IsThisUser(ctx context.Context, userID networkid.UserID) bool {
+	m.UserLogin.Log.Debug().Msgf("[IsThisUser] %s vs MessagesClient.UserLogin.ID %s", userID, m.UserLogin.ID)
 	return networkid.UserID(m.UserLogin.ID) == userID
 }
 
 func (m *MessagesClient) GetChatInfo(ctx context.Context, portal *bridgev2.Portal) (*bridgev2.ChatInfo, error) {
+	m.UserLogin.Log.Debug().Msgf("[GetChatInfo] portalID: %s", portal.ID)
 	chatName, avatar, err := m.MacOSMessagesClient.GetChatDetails(portal.ID)
 	if err != nil {
 		m.UserLogin.Log.Error().Msgf("Failed to get chat details for group %s: %s", portal.ID, err)
 		return nil, err
 	}
+	m.UserLogin.Log.Debug().Msgf("[GetChatInfo] chatName: %s", *chatName)
 	memberMap, err := m.MacOSMessagesClient.GetChatMemberMap(portal.ID, networkid.UserID(m.UserLogin.ID))
 	if err != nil {
 		m.UserLogin.Log.Error().Msgf("failed to get chat members for group %s: %s", portal.ID, err)
 		return nil, err
 	}
+	m.UserLogin.Log.Debug().Msgf("[GetChatInfo] memberMap length: %d", len(memberMap))
 
 	contactsMap, err := m.MacOSContactsClient.GetContactsMap()
 	if err != nil {
 		m.UserLogin.Log.Error().Msgf("failed to get contacts: %s", err)
 		return nil, err
 	}
+	m.UserLogin.Log.Debug().Msgf("[GetChatInfo] contactsMap length: %d", len(contactsMap))
 	macos.SupplementMemberMapWithContactsMap(&memberMap, contactsMap, *m.MacOSContactsClient)
+	m.UserLogin.Log.Debug().Msgf("[GetChatInfo] supplemented membmerMap with contactsMap")
 
 	if *chatName == "" {
 		memberNames := []string{}
@@ -200,14 +206,17 @@ func (m *MessagesClient) GetChatInfo(ctx context.Context, portal *bridgev2.Porta
 		}
 		*chatName = strings.Join(memberNames, ", ")
 	}
+	m.UserLogin.Log.Debug().Msgf("[GetChatInfo] final chatName: %s", *chatName)
 
 	if len(memberMap) == 2 {
+		m.UserLogin.Log.Debug().Msgf("[GetChatInfo] member map of 2, setting avatar")
 		for _, chatMember := range memberMap {
 			if !chatMember.EventSender.IsFromMe {
+				m.UserLogin.Log.Debug().Msgf("[GetChatInfo] set avatar to %s", chatMember.Sender)
 				avatar = chatMember.UserInfo.Avatar
+				break
 			}
 		}
-
 	}
 
 	return &bridgev2.ChatInfo{
@@ -221,7 +230,13 @@ func (m *MessagesClient) GetChatInfo(ctx context.Context, portal *bridgev2.Porta
 }
 
 func (m *MessagesClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost) (*bridgev2.UserInfo, error) {
-	return m.MacOSContactsClient.GetContactUserInfo(string(ghost.ID))
+	m.UserLogin.Log.Debug().Msgf("[GetUserInfo] ghost.ID: %s", ghost.ID)
+	if userInfo, err := m.MacOSContactsClient.GetContactUserInfo(string(ghost.ID)); err != nil {
+		m.UserLogin.Log.Error().Msgf("[GetUserInfo] [ghost.ID: %s]: %v", ghost.ID, err)
+		return nil, err
+	} else {
+		return userInfo, nil
+	}
 }
 
 // HandleMatrixMessage implements bridgev2.NetworkAPI.

@@ -137,7 +137,7 @@ func (c MacOSMessagesClient) GetChatMemberMap(chatID networkid.PortalID, selfUse
 				},
 			}
 		}
-		if _, ok := membersMap[selfUserID]; !ok {
+		if selfMember, ok := membersMap[selfUserID]; !ok {
 			membersMap[selfUserID] = bridgev2.ChatMember{
 				Membership: event.MembershipJoin,
 				EventSender: bridgev2.EventSender{
@@ -147,6 +147,8 @@ func (c MacOSMessagesClient) GetChatMemberMap(chatID networkid.PortalID, selfUse
 					Identifiers: []string{},
 				},
 			}
+		} else {
+			selfMember.EventSender.IsFromMe = true
 		}
 
 		return membersMap, nil
