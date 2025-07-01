@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/GroveJay/matrix-macOS-Messages-bridge/pkg/connector"
 	"github.com/GroveJay/matrix-macOS-Messages-bridge/pkg/macos"
@@ -53,7 +54,7 @@ func test_oascript_vcard_image() {
 func checkError(err error) bool {
 	if err != nil {
 		fmt.Print(err.Error())
-		return true
+		panic(err)
 	}
 	return false
 }
@@ -113,7 +114,7 @@ func test_parse_all_messages() {
 	checkError(err)
 	messagesClient, err := macos.GetMessagesClient("foobar", logger)
 	checkError(err)
-	messages, err := messagesClient.GetMessagesNewerThan(0) // 772941069808000128
+	messages, err := messagesClient.GetMessagesNewerThan(772941069808000128) // 0)
 	checkError(err)
 	testHandleMessages(messages, logger)
 }
@@ -134,6 +135,38 @@ func test_parse_surrounding_messages(messageID string) {
 
 func testHandleMessages(messages []*macos.DBMessage, logger *zerolog.Logger) {
 	println(fmt.Sprintf("parsing %d message(s)", len(messages)))
+	tw := tabwriter.NewWriter(os.Stdout, 1, 0, 1, ' ', 0)
+	fmt.Fprintln(tw, strings.Join([]string{
+		"RowID",
+		"Date",
+		"GUID",
+		"Me",
+		"IT",
+		"GAT",
+		"Chat GUID",
+		"H.ID",
+		"O.ID",
+		"len(atch)",
+		"len(body)",
+		"BB ID",
+	}, "\t"))
+	for _, message := range messages {
+		fmt.Fprintln(tw, strings.Join([]string{
+			fmt.Sprintf("%d", message.RowID),
+			fmt.Sprintf("%d", message.Date),
+			message.GUID,
+			fmt.Sprintf("%t", message.IsFromMe),
+			fmt.Sprintf("%d", message.ItemType),
+			fmt.Sprintf("%d", message.GroupActionType),
+			message.ChatGUID,
+			message.HandleID,
+			message.OtherID,
+			fmt.Sprintf("%d", len(message.Attachments)),
+			fmt.Sprintf("%d", len(message.AttributedBody)),
+			message.BalloonBundleID,
+		}, "\t"))
+	}
+	tw.Flush()
 	mc := &connector.MessagesClient{
 		UserLogin: &bridgev2.UserLogin{
 			UserLogin: &database.UserLogin{

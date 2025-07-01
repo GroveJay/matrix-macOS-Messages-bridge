@@ -30,9 +30,7 @@ type DBMessage struct {
 	BalloonBundleID      string
 	ThreadOriginatorPart string
 	HandleID             string
-	HandleService        string
 	OtherID              string
-	OtherService         string
 
 	GroupActionType GroupActionType
 	ItemType        ItemType

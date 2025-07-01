@@ -25,8 +25,7 @@ const (
 const baseMessagesQuery = `
 SELECT message.*,
 chat.guid, chat.group_id,
-COALESCE(handle_on_handle_id.id, ''), COALESCE(handle_on_handle_id.service, ''),
-COALESCE(handle_on_other_handle.id, ''), COALESCE(handle_on_other_handle.service, '')
+COALESCE(handle_on_handle_id.id, ''), COALESCE(handle_on_other_handle.id, '')
 FROM message
 LEFT JOIN chat_message_join    ON chat_message_join.message_id = message.ROWID
 LEFT JOIN chat                 ON chat_message_join.chat_id = chat.ROWID

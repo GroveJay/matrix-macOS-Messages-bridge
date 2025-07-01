@@ -124,6 +124,7 @@ func (m Message) String() string {
 	results = append(results, fmt.Sprintf("Type: %d", m.ItemType))
 	results = append(results, fmt.Sprintf("Handler ID: %s", m.HandleID))
 	results = append(results, fmt.Sprintf("Other ID: %s", m.OtherID))
+	results = append(results, fmt.Sprintf("Chat GUID: %s", m.ChatGUID))
 	if len(m.Subject) > 0 {
 		results = append(results, fmt.Sprintf("Subject: %s", m.Subject))
 	}
@@ -195,6 +196,7 @@ func (m *Message) ConvertAttributedStringToFormattedHTMLParts(ctx context.Contex
 	messageStringUTF16 := utf16.Encode([]rune(a.Value))
 
 	currentMessagePart := &bridgev2.ConvertedMessagePart{
+		Type: event.EventMessage,
 		Content: &event.MessageEventContent{
 			Body:     "",
 			Mentions: &event.Mentions{},
@@ -220,6 +222,7 @@ func (m *Message) ConvertAttributedStringToFormattedHTMLParts(ctx context.Contex
 				parts = append(parts, currentMessagePart)
 				currentMessageAttributePart = *messageAttributePartAsInt
 				currentMessagePart = &bridgev2.ConvertedMessagePart{
+					Type: event.EventMessage,
 					Content: &event.MessageEventContent{
 						Body:     "",
 						Mentions: &event.Mentions{},
@@ -431,6 +434,7 @@ func (m *Message) CreateURLPreview() ([]*bridgev2.ConvertedMessagePart, error) {
 			if flatPlistData, err := FlatObjectMapFromPlistData(m.PayloadData, "root"); err == nil {
 				if urlPreview, err := URLPreviewFromFlatPlistData(flatPlistData); err == nil {
 					return []*bridgev2.ConvertedMessagePart{{
+						Type: event.EventMessage,
 						Content: &event.MessageEventContent{
 							Body:          m.AttributedString.Value,
 							Format:        event.FormatHTML,

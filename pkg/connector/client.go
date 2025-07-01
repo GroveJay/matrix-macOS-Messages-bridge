@@ -285,7 +285,7 @@ func (m *MessagesClient) watchMessagesDBFile(watcher *fsnotify.Watcher, maxMessa
 						}
 
 						if dbMessage.ChatGUID == "" {
-							m.UserLogin.Log.Warn().Msgf("Message found without associated chat id, skipping")
+							m.UserLogin.Log.Warn().Msgf("[%d] Message found without associated chat id, skipping", dbMessage.RowID)
 							continue
 						}
 
@@ -358,7 +358,7 @@ func (m *MessagesClient) QueueRemoteEventWrapper(evt bridgev2.RemoteEvent) {
 	if m.DryRun {
 		// m.UserLogin.Log.Info().Msgf("would send event: %s", evt.GetType())
 		if asMessageEvent, ok := evt.(*simplevent.Message[macos.Message]); ok {
-			m.UserLogin.Log.Info().Msgf("simpleEvent.Message type: %s:\n%s", evt.GetType(), asMessageEvent.Data)
+			m.UserLogin.Log.Info().Msgf("simpleEvent.Message type: %s", evt.GetType())
 
 			context := context.TODO()
 			portal := &bridgev2.Portal{

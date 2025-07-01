@@ -24,6 +24,7 @@ const (
 	MACOS_14_MESSAGES_COLUMNS    = 88
 	MACOS_16_ATTACHMENTS_COLUMNS = 27
 	MACOS_14_ATTACHMENTS_COLUMNS = 24
+	ADDITIONAL_MESSAGES_COLUMNS  = 4
 )
 
 type ReadReceipt struct {
@@ -351,9 +352,7 @@ func OS16MessagesScan(res *sql.Rows) (*DBMessage, error) {
 	var threadOriginatorPart sql.NullString
 	var balloonBundleID sql.NullString
 	var handleID sql.NullString
-	var handleService sql.NullString
 	var otherID sql.NullString
-	var otherService sql.NullString
 	var tapbackTargetGUID sql.NullString
 	var tapbackEmoji sql.NullString
 	var chatGUID sql.NullString
@@ -371,7 +370,7 @@ func OS16MessagesScan(res *sql.Rows) (*DBMessage, error) {
 		&dummyInt, &dummyInt, &threadOriginatorGUID, &threadOriginatorPart, &dummyText, &dummyInt, &dummyInt, &dummyText, &message.DateRetracted, &message.DateEdited,
 		&dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyText, &dummyInt, &dummyText, &tapbackEmoji, &dummyInt,
 		&dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt,
-		&chatGUID, &threadID, &handleID, &handleService, &otherID, &otherService,
+		&chatGUID, &threadID, &handleID, &otherID,
 	)
 	if err == nil {
 		messageStringFields := map[*string]sql.NullString{
@@ -381,9 +380,7 @@ func OS16MessagesScan(res *sql.Rows) (*DBMessage, error) {
 			&message.ReplyToGUID:          threadOriginatorGUID,
 			&message.BalloonBundleID:      balloonBundleID,
 			&message.HandleID:             handleID,
-			&message.HandleService:        handleService,
 			&message.OtherID:              otherID,
-			&message.OtherService:         otherService,
 			&message.ChatGUID:             chatGUID,
 			&message.ThreadID:             threadID,
 			&message.TapbackTargetGUID:    tapbackTargetGUID,
@@ -412,9 +409,7 @@ func OS14MessagesScan(res *sql.Rows) (*DBMessage, error) {
 	var tapbackTargetGUID sql.NullString
 	var balloonBundleID sql.NullString
 	var handleID sql.NullString
-	var handleService sql.NullString
 	var otherID sql.NullString
-	var otherService sql.NullString
 	var chatGUID sql.NullString
 	var threadID sql.NullString
 
@@ -428,7 +423,7 @@ func OS14MessagesScan(res *sql.Rows) (*DBMessage, error) {
 		&dummyInt, &dummyText, &dummyText, &dummyText, &dummyInt, &dummyText, &dummyText, &dummyInt, &dummyText, &dummyInt,
 		&dummyInt, &dummyInt, &threadOriginatorGUID, &threadOriginatorPart, &dummyText, &dummyInt, &dummyInt, &dummyText, &message.DateRetracted, &message.DateEdited,
 		&dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyText, &dummyInt, &dummyText,
-		&chatGUID, &threadID, &handleID, &handleService, &otherID, &otherService,
+		&chatGUID, &threadID, &handleID, &otherID,
 	)
 	if err == nil {
 		messageStringFields := map[*string]sql.NullString{
@@ -438,9 +433,7 @@ func OS14MessagesScan(res *sql.Rows) (*DBMessage, error) {
 			&message.ReplyToGUID:          threadOriginatorGUID,
 			&message.BalloonBundleID:      balloonBundleID,
 			&message.HandleID:             handleID,
-			&message.HandleService:        handleService,
 			&message.OtherID:              otherID,
-			&message.OtherService:         otherService,
 			&message.ChatGUID:             chatGUID,
 			&message.ThreadID:             threadID,
 			&message.TapbackTargetGUID:    tapbackTargetGUID,
@@ -464,9 +457,9 @@ func GetMessagesScanFunctionForColumns(res *sql.Rows) (func(res *sql.Rows) (*DBM
 	}
 	// TODO: Actually check the columns are exactly as expected
 	columnCount := len(columns)
-	if columnCount == (MACOS_16_MESSAGES_COLUMNS + 6) {
+	if columnCount == (MACOS_16_MESSAGES_COLUMNS + ADDITIONAL_MESSAGES_COLUMNS) {
 		return OS16MessagesScan, nil
-	} else if columnCount == (MACOS_14_MESSAGES_COLUMNS + 6) {
+	} else if columnCount == (MACOS_14_MESSAGES_COLUMNS + ADDITIONAL_MESSAGES_COLUMNS) {
 		return OS14MessagesScan, nil
 	} else {
 		return nil, fmt.Errorf("unrecognized column count (%d) in Message 'message' database", columnCount)
