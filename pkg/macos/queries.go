@@ -17,29 +17,21 @@ const (
 	ItemTypeMember
 	ItemTypeName
 	ItemTypeAvatar
-
-	ItemTypeError ItemType = -100
+	ItemTypeLocationSharing
+	ItemTypeShareplay ItemType = 6
+	ItemTypeError     ItemType = -100
 )
-
-/*
-Old query for posterity:
-message.ROWID, message.guid, message.date, COALESCE(message.subject, ''), COALESCE(message.text, ''), message.attributedBody, message.message_summary_info,
-chat.guid, COALESCE(sender_handle.id, ''), COALESCE(sender_handle.service, ''), COALESCE(target_handle.id, ''), COALESCE(target_handle.service, ''),
-message.is_from_me, message.date_read, message.is_delivered, message.is_sent, message.is_emote, message.is_audio_message, message.date_edited, message.date_retracted,
-COALESCE(message.thread_originator_guid, ''), COALESCE(message.thread_originator_part, ''), COALESCE(message.associated_message_guid, ''), message.associated_message_type, COALESCE(message.associated_message_emoji, ''),
-message.group_title, message.item_type, message.group_action_type, chat.group_id, COALESCE(message.balloon_bundle_id, '')
-*/
 
 const baseMessagesQuery = `
 SELECT message.*,
 chat.guid, chat.group_id,
-COALESCE(sender_handle.id, ''), COALESCE(sender_handle.service, ''),
-COALESCE(target_handle.id, ''), COALESCE(target_handle.service, '')
+COALESCE(handle_on_handle_id.id, ''), COALESCE(handle_on_handle_id.service, ''),
+COALESCE(handle_on_other_handle.id, ''), COALESCE(handle_on_other_handle.service, '')
 FROM message
-JOIN chat_message_join         ON chat_message_join.message_id = message.ROWID
-JOIN chat                      ON chat_message_join.chat_id = chat.ROWID
-LEFT JOIN handle sender_handle ON message.handle_id = sender_handle.ROWID
-LEFT JOIN handle target_handle ON message.other_handle = target_handle.ROWID
+LEFT JOIN chat_message_join    ON chat_message_join.message_id = message.ROWID
+LEFT JOIN chat                 ON chat_message_join.chat_id = chat.ROWID
+LEFT JOIN handle handle_on_handle_id ON message.handle_id = handle_on_handle_id.ROWID
+LEFT JOIN handle handle_on_other_handle ON message.other_handle = handle_on_other_handle.ROWID
 `
 
 const GroupMemberQuery = `

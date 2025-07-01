@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -230,7 +229,7 @@ func (c *MacOSMessagesClient) GetMaxMessagesTime() (*int64, error) {
 	return &maxMessagesTimeSQL.Int64, nil
 }
 
-func (c *MacOSMessagesClient) GetMessagesAboveRowID(rowID int) ([]*Message, error) {
+func (c *MacOSMessagesClient) GetMessagesAboveRowID(rowID int) ([]*DBMessage, error) {
 	res, err := c.newMessagesQuery.Query(rowID)
 	if err != nil {
 		return nil, fmt.Errorf("error querying messages after rowid: %w", err)
@@ -238,7 +237,7 @@ func (c *MacOSMessagesClient) GetMessagesAboveRowID(rowID int) ([]*Message, erro
 	return c.parseMessages(res)
 }
 
-func (c *MacOSMessagesClient) GetMessagesNewerThan(t int64) ([]*Message, error) {
+func (c *MacOSMessagesClient) GetMessagesNewerThan(t int64) ([]*DBMessage, error) {
 	res, err := c.messagesNewerThanQuery.Query(t)
 	if err != nil {
 		return nil, fmt.Errorf("error querying messages after time %d: %w", t, err)
@@ -246,7 +245,7 @@ func (c *MacOSMessagesClient) GetMessagesNewerThan(t int64) ([]*Message, error) 
 	return c.parseMessages(res)
 }
 
-func (c *MacOSMessagesClient) GetMessagesBetween(minRowID int, maxRowID int) ([]*Message, error) {
+func (c *MacOSMessagesClient) GetMessagesBetween(minRowID int, maxRowID int) ([]*DBMessage, error) {
 	res, err := c.messagesBetweenQuery.Query(minRowID, maxRowID)
 	if err != nil {
 		return nil, fmt.Errorf("error querying messages between rowids %d and %d: %w", minRowID, maxRowID, err)
@@ -339,9 +338,11 @@ func (c *MacOSMessagesClient) getGroupMembers(chatID string) (users []networkid.
 	return users, nil
 }
 
-func OS16MessagesScan(res *sql.Rows, message *Message, messageSummaryInfo *[]byte, tapback *Tapback, threadOriginatorPartString *string) error {
+func OS16MessagesScan(res *sql.Rows) (*DBMessage, error) {
+	var message DBMessage
 	var dummyText sql.NullString
 	var dummyInt sql.NullInt64
+	var testInt sql.NullString
 
 	var messageText sql.NullString
 	var messageSubject sql.NullString
@@ -349,41 +350,45 @@ func OS16MessagesScan(res *sql.Rows, message *Message, messageSummaryInfo *[]byt
 	var threadOriginatorGUID sql.NullString
 	var threadOriginatorPart sql.NullString
 	var balloonBundleID sql.NullString
-	var senderLocalID sql.NullString
-	var senderService sql.NullString
-	var targetLocalID sql.NullString
-	var targetService sql.NullString
+	var handleID sql.NullString
+	var handleService sql.NullString
+	var otherID sql.NullString
+	var otherService sql.NullString
 	var tapbackTargetGUID sql.NullString
 	var tapbackEmoji sql.NullString
+	var chatGUID sql.NullString
+	var threadID sql.NullString
 
 	// TODO add expressive_send_style_id here
 	err := res.Scan(
-		&message.RowID, &message.GUID, &messageText, &dummyInt, &dummyText, &dummyInt, &messageSubject, &dummyText, &message.AttributedBody, &dummyInt,
+		&message.RowID, &message.GUID, &messageText, &dummyInt, &dummyText, &testInt, &messageSubject, &dummyText, &message.AttributedBody, &dummyInt,
 		&dummyInt, &dummyText, &dummyText, &dummyText, &dummyInt, &message.Date, &message.DateRead, &dummyInt, &message.IsDelivered, &dummyInt,
 		&message.IsEmote, &message.IsFromMe, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &message.IsSent, &dummyInt,
 		&dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyText, &dummyInt, &dummyInt, &message.IsAudioMessage, &dummyInt,
 		&dummyInt, &message.ItemType, &dummyInt, &newGroupTitle, &message.GroupActionType, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt,
-		&dummyInt, &tapbackTargetGUID, &tapback.Type, &balloonBundleID, &message.PayloadData, &dummyText, &dummyInt, &dummyInt, &dummyInt, messageSummaryInfo,
+		&dummyInt, &tapbackTargetGUID, &message.TapbackType, &balloonBundleID, &message.PayloadData, &dummyText, &dummyInt, &dummyInt, &dummyInt, &message.MessageSummaryInfo,
 		&dummyInt, &dummyText, &dummyText, &dummyText, &dummyInt, &dummyText, &dummyText, &dummyInt, &dummyText, &dummyInt,
 		&dummyInt, &dummyInt, &threadOriginatorGUID, &threadOriginatorPart, &dummyText, &dummyInt, &dummyInt, &dummyText, &message.DateRetracted, &message.DateEdited,
 		&dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyText, &dummyInt, &dummyText, &tapbackEmoji, &dummyInt,
 		&dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt,
-		&message.ChatGUID, &message.ThreadID, &senderLocalID, &senderService, &targetLocalID, &targetService,
+		&chatGUID, &threadID, &handleID, &handleService, &otherID, &otherService,
 	)
 	if err == nil {
 		messageStringFields := map[*string]sql.NullString{
-			&message.Text:              messageText,
-			&message.NewGroupTitle:     newGroupTitle,
-			&message.Subject:           messageSubject,
-			&message.ReplyToGUID:       threadOriginatorGUID,
-			&message.BalloonBundleID:   balloonBundleID,
-			&message.Sender.LocalID:    senderLocalID,
-			&message.Sender.Service:    senderService,
-			&message.Target.LocalID:    targetLocalID,
-			&message.Target.Service:    targetService,
-			&tapback.TargetGUID:        tapbackTargetGUID,
-			&tapback.Emoji:             tapbackEmoji,
-			threadOriginatorPartString: threadOriginatorPart,
+			&message.Text:                 messageText,
+			&message.NewGroupTitle:        newGroupTitle,
+			&message.Subject:              messageSubject,
+			&message.ReplyToGUID:          threadOriginatorGUID,
+			&message.BalloonBundleID:      balloonBundleID,
+			&message.HandleID:             handleID,
+			&message.HandleService:        handleService,
+			&message.OtherID:              otherID,
+			&message.OtherService:         otherService,
+			&message.ChatGUID:             chatGUID,
+			&message.ThreadID:             threadID,
+			&message.TapbackTargetGUID:    tapbackTargetGUID,
+			&message.TapbackEmoji:         tapbackEmoji,
+			&message.ThreadOriginatorPart: threadOriginatorPart,
 		}
 		for field, value := range messageStringFields {
 			if value.Valid {
@@ -391,10 +396,11 @@ func OS16MessagesScan(res *sql.Rows, message *Message, messageSummaryInfo *[]byt
 			}
 		}
 	}
-	return err
+	return &message, err
 }
 
-func OS14MessagesScan(res *sql.Rows, message *Message, messageSummaryInfo *[]byte, tapback *Tapback, threadOriginatorPartString *string) error {
+func OS14MessagesScan(res *sql.Rows) (*DBMessage, error) {
+	var message DBMessage
 	var dummyText sql.NullString
 	var dummyInt sql.NullInt64
 
@@ -403,12 +409,14 @@ func OS14MessagesScan(res *sql.Rows, message *Message, messageSummaryInfo *[]byt
 	var newGroupTitle sql.NullString
 	var threadOriginatorGUID sql.NullString
 	var threadOriginatorPart sql.NullString
-	var balloonBundleID sql.NullString
-	var senderLocalID sql.NullString
-	var senderService sql.NullString
-	var targetLocalID sql.NullString
-	var targetService sql.NullString
 	var tapbackTargetGUID sql.NullString
+	var balloonBundleID sql.NullString
+	var handleID sql.NullString
+	var handleService sql.NullString
+	var otherID sql.NullString
+	var otherService sql.NullString
+	var chatGUID sql.NullString
+	var threadID sql.NullString
 
 	err := res.Scan(
 		&message.RowID, &message.GUID, &messageText, &dummyInt, &dummyText, &dummyInt, &messageSubject, &dummyText, &message.AttributedBody, &dummyInt,
@@ -416,25 +424,27 @@ func OS14MessagesScan(res *sql.Rows, message *Message, messageSummaryInfo *[]byt
 		&message.IsEmote, &message.IsFromMe, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &message.IsSent, &dummyInt,
 		&dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyText, &dummyInt, &dummyInt, &message.IsAudioMessage, &dummyInt,
 		&dummyInt, &message.ItemType, &dummyInt, &newGroupTitle, &message.GroupActionType, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt,
-		&dummyInt, &tapbackTargetGUID, &tapback.Type, &balloonBundleID, &message.PayloadData, &dummyText, &dummyInt, &dummyInt, &dummyInt, messageSummaryInfo,
+		&dummyInt, &tapbackTargetGUID, &message.TapbackType, &balloonBundleID, &message.PayloadData, &dummyText, &dummyInt, &dummyInt, &dummyInt, &message.MessageSummaryInfo,
 		&dummyInt, &dummyText, &dummyText, &dummyText, &dummyInt, &dummyText, &dummyText, &dummyInt, &dummyText, &dummyInt,
 		&dummyInt, &dummyInt, &threadOriginatorGUID, &threadOriginatorPart, &dummyText, &dummyInt, &dummyInt, &dummyText, &message.DateRetracted, &message.DateEdited,
 		&dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyText, &dummyInt, &dummyText,
-		&message.ChatGUID, &message.ThreadID, &senderLocalID, &senderService, &targetLocalID, &targetService,
+		&chatGUID, &threadID, &handleID, &handleService, &otherID, &otherService,
 	)
 	if err == nil {
 		messageStringFields := map[*string]sql.NullString{
-			&message.Text:              messageText,
-			&message.NewGroupTitle:     newGroupTitle,
-			&message.Subject:           messageSubject,
-			&message.ReplyToGUID:       threadOriginatorGUID,
-			&message.BalloonBundleID:   balloonBundleID,
-			&message.Sender.LocalID:    senderLocalID,
-			&message.Sender.Service:    senderService,
-			&message.Target.LocalID:    targetLocalID,
-			&message.Target.Service:    targetService,
-			&tapback.TargetGUID:        tapbackTargetGUID,
-			threadOriginatorPartString: threadOriginatorPart,
+			&message.Text:                 messageText,
+			&message.NewGroupTitle:        newGroupTitle,
+			&message.Subject:              messageSubject,
+			&message.ReplyToGUID:          threadOriginatorGUID,
+			&message.BalloonBundleID:      balloonBundleID,
+			&message.HandleID:             handleID,
+			&message.HandleService:        handleService,
+			&message.OtherID:              otherID,
+			&message.OtherService:         otherService,
+			&message.ChatGUID:             chatGUID,
+			&message.ThreadID:             threadID,
+			&message.TapbackTargetGUID:    tapbackTargetGUID,
+			&message.ThreadOriginatorPart: threadOriginatorPart,
 		}
 		for field, value := range messageStringFields {
 			if value.Valid {
@@ -443,10 +453,10 @@ func OS14MessagesScan(res *sql.Rows, message *Message, messageSummaryInfo *[]byt
 		}
 	}
 
-	return err
+	return &message, err
 }
 
-func GetMessagesScanFunctionForColumns(res *sql.Rows) (func(res *sql.Rows, message *Message, messageSummaryInfo *[]byte, tapback *Tapback, threadOriginatorPartString *string) error, error) {
+func GetMessagesScanFunctionForColumns(res *sql.Rows) (func(res *sql.Rows) (*DBMessage, error), error) {
 	columns, err := res.Columns()
 	if err != nil {
 		err = fmt.Errorf("getting columns for messages query: %w", err)
@@ -559,103 +569,61 @@ func GetAttachmentsScanFunctionForColumns(attachmentRows *sql.Rows) (func(attach
 	}
 }
 
-func (c *MacOSMessagesClient) parseMessages(res *sql.Rows) ([]*Message, error) {
+func (c *MacOSMessagesClient) getAttachments(rowID int) (map[string]*Attachment, error) {
+	attachments := map[string]*Attachment{}
+
+	attachmentRows, err := c.attachmentsQuery.Query(rowID)
+	if err != nil {
+		return nil, fmt.Errorf("querying attachments for %d: %w", rowID, err)
+	}
+	var attachmentsScanFunction func(*sql.Rows) (Attachment, []byte, error)
+	attachmentsScanFunction, err = GetAttachmentsScanFunctionForColumns(attachmentRows)
+	if err != nil {
+		err = fmt.Errorf("getting Attachments scan function: %w", err)
+		return nil, err
+	}
+	for attachmentRows.Next() {
+		attachment, stickerUserInfo, err := attachmentsScanFunction(attachmentRows)
+		if err != nil {
+			return nil, fmt.Errorf("error scanning attachment row for %d: %w", rowID, err)
+		}
+		if len(stickerUserInfo) > 0 {
+			plistDictionary := make(map[string]any, 0)
+			if err := plist.NewDecoder(bytes.NewReader(stickerUserInfo)).Decode(plistDictionary); err != nil {
+				return nil, fmt.Errorf("decoding plist to plistDictionary: %w", err)
+			}
+			pid, err := GetValueAsTypeFromMapKey[string](plistDictionary, "pid")
+			if err != nil {
+				return nil, fmt.Errorf("finding pid key in plistDictionary: %w", err)
+			}
+			attachment.StickerSource = StickerSource(*pid)
+		}
+		// TODO: add attribution_info parsing, meh
+		attachments[attachment.GUID] = &attachment
+	}
+
+	return attachments, nil
+}
+
+func (c *MacOSMessagesClient) parseMessages(res *sql.Rows) ([]*DBMessage, error) {
 	messagesScanFunction, err := GetMessagesScanFunctionForColumns(res)
 	if err != nil {
 		return nil, fmt.Errorf("getting row scan function: %w", err)
 	}
-	// TODO: allocate this ahead of time to avoid excessive appends
-	messages := []*Message{}
+	// TODO: allocate this ahead of time to avoid append
+	dbMessages := []*DBMessage{}
 	for res.Next() {
-		var message Message
-		var tapback Tapback
-		var messageSummaryInfo []byte
-
-		var threadOriginatorPart string
-		err = messagesScanFunction(res, &message, &messageSummaryInfo, &tapback, &threadOriginatorPart)
+		dbMessage, err := messagesScanFunction(res)
 		if err != nil {
 			return nil, fmt.Errorf("scanning row: %w", err)
 		}
 
-		message.CreatedAt = time.Unix(AppleEpochUnix, message.Date)
-		if message.DateRead != 0 {
-			message.ReadAt = time.Unix(AppleEpochUnix, message.DateRead)
-			message.IsRead = true
-		}
-		if message.DateEdited != 0 {
-			message.EditedAt = time.Unix(AppleEpochUnix, message.DateEdited)
-			message.IsEdited = true
-		}
-		if message.DateRetracted != 0 {
-			message.RetractedAt = time.Unix(AppleEpochUnix, message.DateRetracted)
-			message.IsRetracted = true
-		}
-		message.Attachments = map[string]*Attachment{}
-		attachmentRows, err := c.attachmentsQuery.Query(message.RowID)
+		dbMessage.Attachments, err = c.getAttachments(dbMessage.RowID)
 		if err != nil {
-			return nil, fmt.Errorf("querying attachments for %d: %w", message.RowID, err)
+			return nil, fmt.Errorf("getting attachments: %w", err)
 		}
-		var attachmentsScanFunction func(*sql.Rows) (Attachment, []byte, error)
-		attachmentsScanFunction, err = GetAttachmentsScanFunctionForColumns(attachmentRows)
-		if err != nil {
-			err = fmt.Errorf("getting Attachments scan function: %w", err)
-			return nil, err
-		}
-		for attachmentRows.Next() {
-			attachment, stickerUserInfo, err := attachmentsScanFunction(attachmentRows)
-			if err != nil {
-				return nil, fmt.Errorf("error scanning attachment row for %d: %w", message.RowID, err)
-			}
-			if len(stickerUserInfo) > 0 {
-				plistDictionary := make(map[string]any, 0)
-				if err := plist.NewDecoder(bytes.NewReader(stickerUserInfo)).Decode(plistDictionary); err != nil {
-					return nil, fmt.Errorf("decoding plist to plistDictionary: %w", err)
-				}
-				pid, err := GetValueAsTypeFromMapKey[string](plistDictionary, "pid")
-				if err != nil {
-					return nil, fmt.Errorf("finding pid key in plistDictionary: %w", err)
-				}
-				attachment.StickerSource = StickerSource(*pid)
-			}
-			// TODO: add attribution_info parsing, meh
-			message.Attachments[attachment.GUID] = &attachment
-		}
-		if len(message.AttributedBody) > 0 {
-			if attributedString, err := DecodeStreamTypedComponents(message.AttributedBody); err != nil {
-				return nil, fmt.Errorf("[%d] failed to decode attributedBody of %s: %v", message.RowID, message.GUID, err)
-			} else {
-				message.AttributedString = *attributedString
-			}
-		}
-		if len(messageSummaryInfo) > 0 {
-			if editedMessageParts, err := EditedMessagePartsFromMessageSummaryInfo(messageSummaryInfo); err != nil {
-				if message.IsEdited {
-					return nil, fmt.Errorf("[%d] failed to convert message_summary_info to edited message parts: %v", message.RowID, err)
-				}
-			} else {
-				if !message.IsEdited && len(editedMessageParts) > 1 {
-					c.log.Warn().Msgf("[%d] message has message_summary_info of length %d but was not edited!", message.RowID, len(editedMessageParts))
-				}
-				message.EditedMessageParts = editedMessageParts
-			}
-		}
-		err = nil
-		if len(threadOriginatorPart) > 0 {
-			// The thread_originator_part field seems to have three parts separated by colons.
-			// The first two parts look like the part index, the third one is something else.
-			// TODO this might not be reliable
-			message.ReplyToPart, _ = strconv.Atoi(strings.Split(threadOriginatorPart, ":")[0])
-		}
-		if message.IsFromMe {
-			message.Sender.LocalID = ""
-		}
-		if len(tapback.TargetGUID) > 0 {
-			message.Tapback, err = tapback.Parse()
-			if err != nil {
-				c.log.Warn().Msgf("[%d] Failed to parse tapback in %s: %v", message.RowID, message.GUID, err)
-			}
-		}
-		messages = append(messages, &message)
+
+		dbMessages = append(dbMessages, dbMessage)
 	}
-	return messages, nil
+	return dbMessages, nil
 }

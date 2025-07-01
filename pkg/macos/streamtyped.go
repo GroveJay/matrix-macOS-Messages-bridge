@@ -183,7 +183,10 @@ func (n NSMutableAttributedString) String() string {
 
 	results = append(results, fmt.Sprintf("Attribute Ranges: %d", len(n.RangedAttributes)))
 	for i, rangedAttribute := range n.RangedAttributes {
-		results = append(results, fmt.Sprintf("\t%d (%d) - %d -> %d", i, rangedAttribute.cacheKey, rangedAttribute.start, rangedAttribute.start+rangedAttribute.length))
+		results = append(results, fmt.Sprintf("\t#%d (ref: %d) - [%d -> %d] %d", i, rangedAttribute.cacheKey, rangedAttribute.start, rangedAttribute.start+rangedAttribute.length, len(rangedAttribute.AttributeMap)))
+		if len(rangedAttribute.AttributeMap) < 2 {
+			continue
+		}
 		for k, v := range rangedAttribute.AttributeMap {
 			valueString := ""
 			switch value := v.(type) {

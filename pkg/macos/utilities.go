@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -525,4 +526,84 @@ func URLPreviewFromFlatPlistData(flatPlistData map[string]any) (result string, e
 	}
 
 	return fmt.Sprintf(TEXT_URL_PREVIEW, *urlString, *title, hostnameOrUrl), nil
+}
+
+func ConvertDBMessage(m DBMessage, defaultHandleID string) (*Message, error) {
+	message := Message{}
+	message.DBRowID = m.RowID
+	message.Text = m.Text
+	message.Subject = m.Subject
+	message.ItemType = m.ItemType
+	message.GUID = m.GUID
+	message.BalloonBundleID = m.BalloonBundleID
+	message.GroupActionType = m.GroupActionType
+	message.NewGroupTitle = m.NewGroupTitle
+	message.ReplyToGUID = m.ReplyToGUID
+	message.IsFromMe = m.IsFromMe
+	message.PayloadData = m.PayloadData
+	message.ChatGUID = m.ChatGUID
+	message.DBDate = m.Date
+	message.IsSent = m.IsSent
+	message.OtherID = m.OtherID
+	message.HandleID = m.HandleID
+	message.Attachments = m.Attachments
+
+	if message.IsFromMe {
+		message.HandleID = defaultHandleID
+	}
+
+	message.CreatedAt = time.Unix(AppleEpochUnix, m.Date)
+	if m.DateRead != 0 {
+		message.ReadAt = time.Unix(AppleEpochUnix, m.DateRead)
+		message.IsRead = true
+	}
+	if m.DateEdited != 0 {
+		message.EditedAt = time.Unix(AppleEpochUnix, m.DateEdited)
+		message.IsEdited = true
+	}
+	if m.DateRetracted != 0 {
+		message.RetractedAt = time.Unix(AppleEpochUnix, m.DateRetracted)
+		message.IsRetracted = true
+	}
+
+	if len(m.AttributedBody) > 0 {
+		if attributedString, err := DecodeStreamTypedComponents(m.AttributedBody); err != nil {
+			return nil, fmt.Errorf("[%d] failed to decode attributedBody of %s: %v", m.RowID, m.GUID, err)
+		} else {
+			message.AttributedString = *attributedString
+		}
+	}
+	if len(m.MessageSummaryInfo) > 0 {
+		if editedMessageParts, err := EditedMessagePartsFromMessageSummaryInfo(m.MessageSummaryInfo); err != nil {
+			if message.IsEdited {
+				return nil, fmt.Errorf("[%d] failed to convert message_summary_info to edited message parts: %v", m.RowID, err)
+			}
+		} else {
+			if !message.IsEdited && len(editedMessageParts) > 1 {
+				return nil, fmt.Errorf("[%d] message has message_summary_info of length %d but was not edited", m.RowID, len(editedMessageParts))
+			}
+			message.EditedMessageParts = editedMessageParts
+		}
+	}
+
+	if len(m.ThreadOriginatorPart) > 0 {
+		// The thread_originator_part field seems to have three parts separated by colons.
+		// The first two parts look like the part index, the third one is something else.
+		// TODO this might not be reliable
+		message.ReplyToPart, _ = strconv.Atoi(strings.Split(m.ThreadOriginatorPart, ":")[0])
+	}
+	/*
+		if message.IsFromMe {
+			message.Sender.LocalID = ""
+		}
+	*/
+	if len(m.TapbackTargetGUID) > 0 {
+		var err error
+		message.Tapback, err = m.ParseTapback()
+		if err != nil {
+			return nil, fmt.Errorf("[%d] Failed to parse tapback in %s: %v", m.RowID, m.GUID, err)
+		}
+	}
+
+	return &message, nil
 }

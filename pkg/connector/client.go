@@ -268,22 +268,34 @@ func (m *MessagesClient) watchMessagesDBFile(watcher *fsnotify.Watcher, maxMessa
 				handleLock.Lock()
 				defer handleLock.Unlock()
 
-				if newMessages, err := m.MacOSMessagesClient.GetMessagesNewerThan(maxMessagesTimestamp); err != nil {
+				if newDBMessages, err := m.MacOSMessagesClient.GetMessagesNewerThan(maxMessagesTimestamp); err != nil {
 					m.UserLogin.Log.Warn().Msgf("Error reading messages after fsevent: %v", err)
 				} else {
-					for _, message := range newMessages {
-						if message.Date > maxMessagesTimestamp {
-							maxMessagesTimestamp = message.Date
+					for _, dbMessage := range newDBMessages {
+						if dbMessage.Date > maxMessagesTimestamp {
+							maxMessagesTimestamp = dbMessage.Date
 						}
 
-						if !message.IsSent {
-							nonSentMessages[message.GUID] = true
-						} else if _, ok := nonSentMessages[message.GUID]; ok {
-							delete(nonSentMessages, message.GUID)
+						if !dbMessage.IsSent {
+							nonSentMessages[dbMessage.GUID] = true
+							continue
+						} else if _, ok := nonSentMessages[dbMessage.GUID]; ok {
+							delete(nonSentMessages, dbMessage.GUID)
 							continue
 						}
 
-						m.MessagesChannel <- message
+						if dbMessage.ChatGUID == "" {
+							m.UserLogin.Log.Warn().Msgf("Message found without associated chat id, skipping")
+							continue
+						}
+
+						convertedMesage, err := macos.ConvertDBMessage(*dbMessage, string(m.UserLogin.ID))
+						if err != nil {
+							m.UserLogin.Log.Warn().Msgf("error converting db message: %v", err)
+							continue
+						}
+
+						m.MessagesChannel <- convertedMesage
 					}
 				}
 				var latestReadReceipts []*macos.ReadReceipt
@@ -346,7 +358,7 @@ func (m *MessagesClient) QueueRemoteEventWrapper(evt bridgev2.RemoteEvent) {
 	if m.DryRun {
 		// m.UserLogin.Log.Info().Msgf("would send event: %s", evt.GetType())
 		if asMessageEvent, ok := evt.(*simplevent.Message[macos.Message]); ok {
-			m.UserLogin.Log.Info().Msgf("simpleEvent.Message type: %s: %s", evt.GetType(), asMessageEvent.Data)
+			m.UserLogin.Log.Info().Msgf("simpleEvent.Message type: %s:\n%s", evt.GetType(), asMessageEvent.Data)
 
 			context := context.TODO()
 			portal := &bridgev2.Portal{
@@ -368,7 +380,7 @@ func (m *MessagesClient) QueueRemoteEventWrapper(evt bridgev2.RemoteEvent) {
 				m.UserLogin.Log.Info().Msgf("[EDITED] original:\n%s", asMessageEvent.Data)
 				convertResult, err := asMessageEvent.ConvertEditFunc(context, portal, &macos.MockMatrixAPI{}, []*database.Message{}, asMessageEvent.Data)
 				if err != nil {
-					m.UserLogin.Log.Error().Msgf("error converting message: %v", err)
+					m.UserLogin.Log.Error().Msgf("error converting edit message: %v", err)
 					return
 				}
 				m.UserLogin.Log.Info().Msgf(macos.ConvertEditToString(convertResult))
@@ -405,7 +417,7 @@ func (m *MessagesClient) HandleTapback(message *macos.Message) {
 		TargetMessage: networkid.MessageID(message.Tapback.TargetGUID),
 		Reactions: &bridgev2.ReactionSyncData{
 			Users: map[networkid.UserID]*bridgev2.ReactionSyncUser{
-				networkid.UserID(message.Sender.String()): {
+				networkid.UserID(message.HandleID): {
 					HasAllReactions: true,
 					Reactions:       reactions,
 				},
@@ -432,7 +444,7 @@ func (m *MessagesClient) HandleEdit(message *macos.Message) {
 	m.QueueRemoteEventWrapper(&simplevent.Message[macos.Message]{
 		EventMeta: simplevent.EventMeta{
 			Sender: bridgev2.EventSender{
-				Sender:   networkid.UserID(message.Sender.LocalID),
+				Sender:   networkid.UserID(message.HandleID),
 				IsFromMe: message.IsFromMe,
 			},
 			Type: bridgev2.RemoteEventEdit,
@@ -451,7 +463,7 @@ func (m *MessagesClient) HandleEdit(message *macos.Message) {
 }
 
 func (m *MessagesClient) HandleNormalMessage(message *macos.Message) {
-	sender := networkid.UserID(message.Sender.LocalID)
+	sender := networkid.UserID(message.HandleID)
 	portalKey := m.PortalKeyFromMessage(message)
 	m.QueueRemoteEventWrapper(&simplevent.Message[macos.Message]{
 		EventMeta: simplevent.EventMeta{
@@ -472,9 +484,9 @@ func (m *MessagesClient) HandleNormalMessage(message *macos.Message) {
 			CreatePortal: true,
 			Timestamp:    time.Now(),
 		},
+		Data:               *message,
 		ID:                 networkid.MessageID(message.GUID),
 		ConvertMessageFunc: m.ConvertMessage,
-		Data:               *message,
 	})
 }
 
@@ -627,7 +639,7 @@ func (m *MessagesClient) HandleMember(message *macos.Message) {
 	if message.GroupActionType == 1 {
 		membership = event.MembershipLeave
 	}
-	m.QueueMemberChatInfoChange(m.PortalKeyFromMessage(message), message.GUID, networkid.UserID(message.Target.LocalID), membership)
+	m.QueueMemberChatInfoChange(m.PortalKeyFromMessage(message), message.GUID, networkid.UserID(message.OtherID), membership)
 }
 
 func (m *MessagesClient) HandleName(message *macos.Message) {
@@ -650,7 +662,15 @@ func (m *MessagesClient) HandleName(message *macos.Message) {
 func (m *MessagesClient) HandleAvatarOrMemberLeave(message *macos.Message) {
 	switch message.GroupActionType {
 	case macos.GroupActionAddUser:
-		m.QueueMemberChatInfoChange(m.PortalKeyFromMessage(message), message.GUID, networkid.UserID(message.Sender.LocalID), event.MembershipLeave)
+		// This happens when you leave a chat
+		if message.HandleID == "" {
+			message.HandleID = string(m.UserLogin.ID)
+		}
+		if message.ChatGUID == "" {
+			m.UserLogin.Log.Error().Msgf("[%d] no chat guid found for message leaving chat", message.DBRowID)
+			return
+		}
+		m.QueueMemberChatInfoChange(m.PortalKeyFromMessage(message), message.GUID, networkid.UserID(message.HandleID), event.MembershipLeave)
 	case macos.GroupActionSetAvatar:
 		m.QueueRemoteEventWrapper(&simplevent.ChatInfoChange{
 			EventMeta: simplevent.EventMeta{
@@ -696,6 +716,8 @@ func (m *MessagesClient) HandleAvatarOrMemberLeave(message *macos.Message) {
 				},
 			},
 		})
+	default:
+		m.UserLogin.Log.Warn().Err(fmt.Errorf("unrecognized message type combination (item_type: %d, group_action_type: %d)", message.ItemType, message.GroupActionType))
 	}
 }
 
@@ -709,6 +731,10 @@ func (m *MessagesClient) HandleiMessage(message *macos.Message) error {
 		m.HandleName(message)
 	case macos.ItemTypeAvatar:
 		m.HandleAvatarOrMemberLeave(message)
+	case macos.ItemTypeLocationSharing:
+		m.UserLogin.Log.Warn().Msg("Skipping Location Sharing message")
+	case macos.ItemTypeShareplay:
+		m.UserLogin.Log.Warn().Msg("Skipping Shareplay message")
 	default:
 		m.UserLogin.Log.Warn().Msgf("Skipping message [%s] of unknown type %d", message.GUID, message.ItemType)
 	}

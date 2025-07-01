@@ -108,60 +108,14 @@ func test_get_chat_details() {
 	}
 }
 
-func test_typedstream() {
+func test_parse_all_messages() {
 	logger, err := prepareLog([]byte(logConfig))
 	checkError(err)
 	messagesClient, err := macos.GetMessagesClient("foobar", logger)
 	checkError(err)
-	messages, err := messagesClient.GetMessagesBetween(33492, 33494)
+	messages, err := messagesClient.GetMessagesNewerThan(0) // 772941069808000128
 	checkError(err)
-	println(fmt.Sprintf("Got %d messages", len(messages)))
-	for _, message := range messages {
-		println(fmt.Sprintf("[%d][Attachments: %d] [text: %s]", message.RowID, len(message.Attachments), message.Text))
-	}
-}
-
-func test_parse_message_summary_info() {
-	r := []byte{}
-	parts, err := macos.EditedMessagePartsFromMessageSummaryInfo(r)
-	checkError(err)
-	for _, part := range parts {
-		println(fmt.Sprintf("part: status: %d", part.Status))
-	}
-}
-
-func test_parse_all_messages(dumpAttributedBodyToFiles bool) {
-	logger, err := prepareLog([]byte(logConfig))
-	checkError(err)
-	messagesClient, err := macos.GetMessagesClient("foobar", logger)
-	checkError(err)
-	messages, err := messagesClient.GetMessagesNewerThan(0) // 772582691221725952
-	checkError(err)
-	testHandleMessages(messages, dumpAttributedBodyToFiles, logger)
-}
-
-func check_balloon_bundle_payload_data(message macos.Message) {
-	if message.PayloadData != nil {
-		if len(message.AttributedString.RangedAttributes) == 1 {
-			onlyRangedAttribute := message.AttributedString.RangedAttributes[0]
-			if _, ok := onlyRangedAttribute.AttributeMap[macos.LinkAttributeName]; ok {
-				// write_bytes_to_filename(fmt.Sprintf("%d-SingleLink-PayloadData", message.RowID), message.PayloadData)
-				test, err := macos.FlatObjectMapFromPlistData(message.PayloadData, "root")
-				checkError(err)
-				fmt.Printf("%s\n", test)
-			}
-			fmt.Printf("\n")
-		} else {
-			fmt.Printf("Too many attributed string ranges to tell?\n")
-		}
-	}
-}
-
-func write_bytes_to_filename(fileName string, contents []byte) {
-	f, err := os.Create(fileName)
-	checkError(err)
-	f.Write([]byte(contents))
-	f.Close()
+	testHandleMessages(messages, logger)
 }
 
 func test_parse_surrounding_messages(messageID string) {
@@ -175,13 +129,10 @@ func test_parse_surrounding_messages(messageID string) {
 	endID := messageIDNumber + 1
 	messages, err := messagesClient.GetMessagesBetween(int(startID), int(endID))
 	checkError(err)
-	for _, message := range messages {
-		check_balloon_bundle_payload_data(*message)
-	}
-	// testHandleMessages(messages, true, logger)
+	testHandleMessages(messages, logger)
 }
 
-func testHandleMessages(messages []*macos.Message, dump bool, logger *zerolog.Logger) {
+func testHandleMessages(messages []*macos.DBMessage, logger *zerolog.Logger) {
 	println(fmt.Sprintf("parsing %d message(s)", len(messages)))
 	mc := &connector.MessagesClient{
 		UserLogin: &bridgev2.UserLogin{
@@ -194,18 +145,13 @@ func testHandleMessages(messages []*macos.Message, dump bool, logger *zerolog.Lo
 	}
 
 	for _, message := range messages {
-		if dump {
-			write_bytes_to_filename(fmt.Sprintf("%d-attributedBody", message.RowID), message.AttributedBody)
+		message, err := macos.ConvertDBMessage(*message, string("CURRENT.USER"))
+		if err != nil {
+			println(fmt.Sprintf("ERROR converting message: %v", err))
+			continue
 		}
 		mc.HandleiMessage(message)
 	}
-}
-
-func test_parse_phone_number() {
-	stdout := ""
-	formattedPhoneNumber, err := macos.ParseFormatPhoneNumber(stdout, "US")
-	checkError(err)
-	println(fmt.Sprintf("got phone: %s", *formattedPhoneNumber))
 }
 
 func test_decode_stream_typed(file string) {
@@ -234,6 +180,6 @@ func main() {
 			test_parse_surrounding_messages(firstArg)
 		}
 	} else {
-		test_parse_all_messages(false)
+		test_parse_all_messages()
 	}
 }

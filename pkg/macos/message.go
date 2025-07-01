@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -81,75 +80,50 @@ type AttachmentMeta struct {
 	Name          *string
 }
 
-// TODO: Create minimal "ParsediMessage" struct so we're not carrying around unused baggage all the way around
-/*
-ParsediMessage:
-- ReplyToGUID
-- ItemType
-- CombinedComponents
-- Attachments
-- AttributedBodyText
-- EditedMessageParts
-- IsFromMe
-- EditedAt
-- CreatedAt
-- CoonvertEditedMessagePart()
-- GUID
-- Tapback
-- Sender
-*/
-
 type Message struct {
-	RowID         int
-	ReplyToPart   int
-	Date          int64
-	DateRead      int64
-	DateEdited    int64
-	DateRetracted int64
+	DBDate int64
 
-	IsSent         bool
-	IsFromMe       bool
-	IsDelivered    bool
-	IsEmote        bool
-	IsAudioMessage bool
-	IsRead         bool
-	IsEdited       bool
-	IsRetracted    bool
-
-	GUID            string
-	Subject         string
 	Text            string
-	ChatGUID        string
-	ReplyToGUID     string
-	ThreadID        string
-	NewGroupTitle   string
+	Subject         string
+	GUID            string
 	BalloonBundleID string
+	NewGroupTitle   string
+	ReplyToGUID     string
+	ChatGUID        string
+	OtherID         string
+	HandleID        string
 
-	Sender Identifier
-	Target Identifier
+	DBRowID     int
+	ReplyToPart int
 
-	GroupActionType GroupActionType
-	ItemType        ItemType
+	IsSent      bool
+	IsRead      bool
+	IsEdited    bool
+	IsRetracted bool
+	IsFromMe    bool
 
 	CreatedAt   time.Time
-	ReadAt      time.Time
-	EditedAt    time.Time
-	RetractedAt time.Time
+	ReadAt      time.Time // ?
+	EditedAt    time.Time // ?
+	RetractedAt time.Time // ?
 
-	Attachments        map[string]*Attachment
 	AttributedString   NSMutableAttributedString
 	EditedMessageParts []*EditedMessagePart
+	Tapback            *Tapback
+	ItemType           ItemType
+	GroupActionType    GroupActionType
 
-	Tapback *Tapback
+	PayloadData []byte
 
-	AttributedBody []byte
-	PayloadData    []byte
+	Attachments map[string]*Attachment
 }
 
 func (m Message) String() string {
 	results := []string{}
-	results = append(results, fmt.Sprintf("Row: %d", m.RowID))
+	results = append(results, fmt.Sprintf("DB Row: %d", m.DBRowID))
 	results = append(results, fmt.Sprintf("Type: %d", m.ItemType))
+	results = append(results, fmt.Sprintf("Handler ID: %s", m.HandleID))
+	results = append(results, fmt.Sprintf("Other ID: %s", m.OtherID))
 	if len(m.Subject) > 0 {
 		results = append(results, fmt.Sprintf("Subject: %s", m.Subject))
 	}
@@ -176,18 +150,20 @@ func (m Message) String() string {
 		}
 	}
 	if m.Tapback != nil {
-		results = append(results, fmt.Sprintf("Tapback: %s", m.Tapback.Emoji))
+		if m.Tapback.Emoji != "" {
+			results = append(results, fmt.Sprintf("Tapback: %s", m.Tapback.Emoji))
+		}
+		if m.Tapback.TargetGUID != "" {
+			results = append(results, fmt.Sprintf("Tapback Target GUID: %s", m.Tapback.TargetGUID))
+		}
+		results = append(results, fmt.Sprintf("Tapback Type: %d", m.Tapback.Type))
+		results = append(results, fmt.Sprintf("Tapback Remove: %t", m.Tapback.Remove))
+		results = append(results, fmt.Sprintf("Tapback Target Part: %d", m.Tapback.TargetPart))
 	}
 	return strings.Join(results, "\n")
 }
 
 func (m *Message) ConvertMessageToParts(ctx context.Context, intent bridgev2.MatrixAPI, roomID id.RoomID, get_users func() ([]id.UserID, error)) ([]*bridgev2.ConvertedMessagePart, error) {
-	if m.ItemType == 6 {
-		return []*bridgev2.ConvertedMessagePart{ErrorToMessagePart(errors.New("unsupported item type (6: Shareplay)"))}, nil
-	}
-	if m.ItemType == 4 {
-		return []*bridgev2.ConvertedMessagePart{ErrorToMessagePart(errors.New("unsupported item type (4: Location Sharing)"))}, nil
-	}
 	if m.BalloonBundleID != "" {
 		if parts, err := m.ConvertAppMessageToMessageParts(ctx, intent, roomID); err != nil {
 			return []*bridgev2.ConvertedMessagePart{ErrorToMessagePart(err)}, nil
@@ -454,7 +430,7 @@ func (m *Message) CreateURLPreview() ([]*bridgev2.ConvertedMessagePart, error) {
 		if _, ok := m.AttributedString.RangedAttributes[0].AttributeMap[LinkAttributeName]; ok && m.PayloadData != nil {
 			if flatPlistData, err := FlatObjectMapFromPlistData(m.PayloadData, "root"); err == nil {
 				if urlPreview, err := URLPreviewFromFlatPlistData(flatPlistData); err == nil {
-					return []*bridgev2.ConvertedMessagePart{&bridgev2.ConvertedMessagePart{
+					return []*bridgev2.ConvertedMessagePart{{
 						Content: &event.MessageEventContent{
 							Body:          m.AttributedString.Value,
 							Format:        event.FormatHTML,
@@ -530,7 +506,7 @@ func (m *Message) ConvertFirstBreadcrumbToMessageParts(messageType string) ([]*b
 		return nil, fmt.Errorf("no message found in %s message", messageType)
 	}
 
-	return []*bridgev2.ConvertedMessagePart{&bridgev2.ConvertedMessagePart{
+	return []*bridgev2.ConvertedMessagePart{{
 		Type: event.EventMessage,
 		Content: &event.MessageEventContent{
 			MsgType: event.MsgText,
