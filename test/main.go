@@ -135,7 +135,7 @@ func test_parse_surrounding_messages(messageID string) {
 
 func testHandleMessages(messages []*macos.DBMessage, logger *zerolog.Logger) {
 	println(fmt.Sprintf("parsing %d message(s)", len(messages)))
-	tw := tabwriter.NewWriter(os.Stdout, 1, 0, 1, ' ', 0)
+	tw := tabwriter.NewWriter(os.Stdout, 1, 0, 1, ' ', tabwriter.Debug)
 	fmt.Fprintln(tw, strings.Join([]string{
 		"RowID",
 		"Date",
@@ -149,6 +149,9 @@ func testHandleMessages(messages []*macos.DBMessage, logger *zerolog.Logger) {
 		"len(atch)",
 		"len(body)",
 		"BB ID",
+		"TB Type",
+		"TB Emoji",
+		"TB Target",
 	}, "\t"))
 	for _, message := range messages {
 		fmt.Fprintln(tw, strings.Join([]string{
@@ -164,6 +167,9 @@ func testHandleMessages(messages []*macos.DBMessage, logger *zerolog.Logger) {
 			fmt.Sprintf("%d", len(message.Attachments)),
 			fmt.Sprintf("%d", len(message.AttributedBody)),
 			message.BalloonBundleID,
+			fmt.Sprintf("%d", message.TapbackType),
+			message.TapbackEmoji,
+			message.TapbackTargetGUID,
 		}, "\t"))
 	}
 	tw.Flush()
