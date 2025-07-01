@@ -235,6 +235,7 @@ func (m *Message) ConvertAttributedStringToFormattedHTMLParts(ctx context.Contex
 
 		currentMessagePart.Content.Body += cleanSubstring
 		currentMessagePart.Content.Format = event.FormatHTML
+		currentMessagePart.Content.MsgType = event.MsgText
 
 		if fileGUID, ok := attributes[FileTransferGUIDAttributeName]; ok {
 			if fileGUIDString, ok := fileGUID.(*string); ok {
@@ -380,6 +381,7 @@ func (m *Message) ConvertAttributedStringToFormattedHTMLParts(ctx context.Contex
 		AddressAttributeName
 		*/
 	}
+
 	parts = append(parts, currentMessagePart)
 
 	return parts, nil
@@ -436,6 +438,7 @@ func (m *Message) CreateURLPreview() ([]*bridgev2.ConvertedMessagePart, error) {
 					return []*bridgev2.ConvertedMessagePart{{
 						Type: event.EventMessage,
 						Content: &event.MessageEventContent{
+							MsgType:       event.MsgText,
 							Body:          m.AttributedString.Value,
 							Format:        event.FormatHTML,
 							FormattedBody: urlPreview,
