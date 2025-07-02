@@ -607,3 +607,36 @@ func ConvertDBMessage(m DBMessage, defaultHandleID string) (*Message, error) {
 
 	return &message, nil
 }
+
+func ConvertCalendarEventToHref(calendarEvent any, createdAt time.Time) (*string, error) {
+	if calendarPlistBytes, ok := calendarEvent.([]byte); !ok {
+		return nil, fmt.Errorf("calendar attribute could not be coerced to bytes: %f", calendarEvent)
+	} else {
+		calendarPlistDictionary := make(map[string]any, 0)
+		if err := plist.NewDecoder(bytes.NewReader(calendarPlistBytes)).Decode(calendarPlistDictionary); err != nil {
+			return nil, fmt.Errorf("decoding plist to calendarPlistDictionary: %w", err)
+		}
+		if objects, ok := calendarPlistDictionary["$objects"]; !ok {
+			return nil, fmt.Errorf("calendar plist did not contain objects list")
+		} else {
+			if objectsAsList, ok := objects.([]any); !ok {
+				return nil, fmt.Errorf("objects was not coercable to list: %f", objects)
+			} else {
+				for j, object := range objectsAsList {
+					if objectString, ok := object.(string); ok && objectString == "DateTime" {
+						previousObject := objectsAsList[j-1]
+						if previousObjectString, ok := previousObject.(string); ok {
+							if eventTime, err := BestEffortDateTimeParse(previousObjectString, createdAt); err == nil {
+								ics := TimeToICS(eventTime)
+								icsBase64 := base64.URLEncoding.EncodeToString([]byte(ics))
+								href := fmt.Sprintf("data:text/calendar;base64,%s", icsBase64)
+								return &href, nil
+							}
+						}
+					}
+				}
+			}
+		}
+		return nil, nil
+	}
+}

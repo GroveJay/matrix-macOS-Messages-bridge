@@ -194,7 +194,9 @@ func (m *MessagesClient) GetChatInfo(ctx context.Context, portal *bridgev2.Porta
 	if *chatName == "" {
 		memberNames := []string{}
 		for _, chatMember := range memberMap {
-			memberNames = append(memberNames, *chatMember.UserInfo.Name)
+			if !chatMember.EventSender.IsFromMe {
+				memberNames = append(memberNames, *chatMember.UserInfo.Name)
+			}
 		}
 		*chatName = strings.Join(memberNames, ", ")
 	}
@@ -204,7 +206,7 @@ func (m *MessagesClient) GetChatInfo(ctx context.Context, portal *bridgev2.Porta
 		m.UserLogin.Log.Debug().Msgf("[GetChatInfo] member map of 2, setting avatar")
 		for _, chatMember := range memberMap {
 			if !chatMember.EventSender.IsFromMe {
-				m.UserLogin.Log.Debug().Msgf("[GetChatInfo] set avatar to %s", chatMember.Sender)
+				m.UserLogin.Log.Debug().Msgf("[GetChatInfo] set avatar to avatar for %s", *chatMember.UserInfo.Name)
 				avatar = chatMember.UserInfo.Avatar
 				break
 			}

@@ -1,15 +1,12 @@
 package macos
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
 	"unicode/utf16"
 
-	"howett.net/plist"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/event"
 	"maunium.net/go/mautrix/id"
@@ -306,37 +303,17 @@ func (m *Message) ConvertAttributedStringToFormattedHTMLParts(ctx context.Contex
 			formattedSubstring = strings.Replace(formattedSubstring, FITNESS_RECEIVER, "", 1)
 		}
 
+		/* TODO: These links seem to get removed by most matrix clients?
 		if calendarValue, ok := attributes[CalendarEventAttributeName]; ok {
-			if calendarPlistBytes, ok := calendarValue.([]byte); !ok {
-				return nil, fmt.Errorf("calendar attribute could not be coerced to bytes: %f", calendarValue)
-			} else {
-				calendarPlistDictionary := make(map[string]any, 0)
-				if err := plist.NewDecoder(bytes.NewReader(calendarPlistBytes)).Decode(calendarPlistDictionary); err != nil {
-					return nil, fmt.Errorf("decoding plist to calendarPlistDictionary: %w", err)
-				}
-				if objects, ok := calendarPlistDictionary["$objects"]; !ok {
-					return nil, fmt.Errorf("calendar plist did not contain objects list")
-				} else {
-					if objectsAsList, ok := objects.([]any); !ok {
-						return nil, fmt.Errorf("objects was not coercable to list: %f", objects)
-					} else {
-						for j, object := range objectsAsList {
-							if objectString, ok := object.(string); ok && objectString == "DateTime" {
-								previousObject := objectsAsList[j-1]
-								if previousObjectString, ok := previousObject.(string); ok {
-									if eventTime, err := BestEffortDateTimeParse(previousObjectString, m.CreatedAt); err == nil {
-										ics := TimeToICS(eventTime)
-										icsBase64 := base64.URLEncoding.EncodeToString([]byte(ics))
-										href := fmt.Sprintf("data:text/calendar;base64,%s", icsBase64)
-										formattedSubstring = fmt.Sprintf("<a href=\"%s\">%s</a>", href, formattedSubstring)
-									}
-								}
-							}
-						}
-					}
-				}
+			href, err := ConvertCalendarEventToHref(calendarValue, m.CreatedAt)
+			if err != nil {
+				return nil, err
+			}
+			if href != nil {
+				formattedSubstring = fmt.Sprintf("<a href=\"%s\">%s</a>", *href, formattedSubstring)
 			}
 		}
+		*/
 
 		if _, ok := attributes[OneTimeCodeAttributeName]; ok {
 			// TODO: is a copy-able html element a thing yet?
