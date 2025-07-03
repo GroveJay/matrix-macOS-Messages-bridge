@@ -23,6 +23,9 @@
 	<array>
 		<string>/Applications/Matrix-MacOS-Messages-Bridge.app/Contents/MacOS/Matrix-MacOS-Messages-Bridge</string>
 	</array>
+	<key>WorkingDirectory</key>
+	<string>/Applications/Matrix-MacOS-Messages-Bridge.app/Contents/MacOS/</string>
+	<key>RunAtLoad</key>
 	<key>RunAtLoad</key>
 	<true/>
 	<key>StandardErrorPath</key>

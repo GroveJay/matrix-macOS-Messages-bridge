@@ -53,8 +53,7 @@ Since it also doesn't have any executable dependencies, it's fastest to build it
 ```bash
 ./build.sh
 ```
-This builds and copies the bridge to it's required location and name so it can become a full macOS Application later.
-
+This builds, moves/renames the built bridge to the .app folder (so it can become a "full" macOS Application later), and prepares the LaunchAgent `.plist` file and copies it to `~/Library/LaunchAgents/`.
 2. Change into the Application folder
 ```bash
 cd ./Matrix-MacOS-Messages-Bridge.app/Contents/MacOS/
@@ -82,8 +81,7 @@ cd ./Matrix-MacOS-Messages-Bridge.app/Contents/MacOS/
 6. Add the bridge registration to the homeserver, moving the `registration.yaml` if necessary.
 7. Create the user and database in the `postgres` instance you're using for other bridges and/or the homeserver.
 8. Copy the Application folder into your `/Applications` folder
-9. Copy the LaunchAgent plist to your `~/Library/LaunchAgents` folder
-10. Load the LaunchAgent with `launchctl`
+9.   Load the LaunchAgent with `launchctl`
 ```bash
 launchctl load ~/Library/LaunchAgents/matrix-macOS-Messages-bridge.plist
 ```
@@ -91,8 +89,8 @@ To remove the LaunchAgent run:
 ```bash
 launchctl bootout matrix-macOS-Messages-bridge
 ```
-11. Check the error logs at `/usr/local/var/log/matrix-macOS-Messages-bridge.error.log` and regular logs at `/usr/local/var/log/matrix-macOS-Messages-bridge.log`
-12. Message the bot in your homeserver at `@Messagesbot:<server_url>`
-13. Test the bot is repsonsive by messaging `help`
-14. Use `login user-id` to confirm your user ID (phone number) is discovered correctly
-15. Complete the login process and check the logs again to see that your Messages database is being watched for updates.
+10.   Check the error logs at `/usr/local/var/log/matrix-macOS-Messages-bridge.error.log` and regular logs at `/usr/local/var/log/matrix-macOS-Messages-bridge.log`
+11.   Message the bot in your homeserver at `@Messagesbot:<server_url>`
+12.   Test the bot is repsonsive by messaging `help`
+13.   Use `login user-id` to confirm your user ID (phone number) is discovered correctly
+14.   Complete the login process and check the logs again to see that your Messages database is being watched for updates.

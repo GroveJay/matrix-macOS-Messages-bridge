@@ -5,4 +5,5 @@ GO_LDFLAGS="-s -w -X main.Tag=$(git describe --exact-match --tags 2>/dev/null) -
 echo "GO_LDFLAGS: ${GO_LDFLAGS}"
 echo "Additional agruments: $@"
 go build -ldflags="$GO_LDFLAGS" -o ./Matrix-MacOS-Messages-Bridge.app/Contents/MacOS/Matrix-MacOS-Messages-Bridge ./cmd "$@"
-sed -e "s|USER_HOME|${HOME}|g" -i matrix-macOS-Messages-bridge.plist
+sed -e "s|USER_HOME|${HOME}|g" -i -- ./matrix-macOS-Messages-bridge.plist
+cp ./matrix-macOS-Messages-bridge.plist ~/Library/LaunchAgents/matrix-macOS-Messages-bridge.plist
