@@ -147,7 +147,11 @@ func (c MacOSContactsClient) GetWrappedAvatarForID(ID string) *bridgev2.Avatar {
 	return &bridgev2.Avatar{
 		ID: networkid.AvatarID(fmt.Sprintf("%s-avatar", ID)),
 		Get: func(ctx context.Context) ([]byte, error) {
-			return GetImageFromVCard(vcardResult)
+			vcardResult, err := GetImageFromVCard(vcardResult)
+			if err != nil {
+				return nil, err
+			}
+			return AddMessagesIconToAvatarImage(vcardResult)
 		},
 	}
 }

@@ -4,7 +4,11 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
+	"image"
+	"image/jpeg"
+	_ "image/png"
 	"io"
+	"math"
 	"net/url"
 	"os"
 	"os/exec"
@@ -17,6 +21,7 @@ import (
 
 	"github.com/nyaruka/phonenumbers"
 	"github.com/tj/go-naturaldate"
+	"golang.org/x/image/draw"
 	"howett.net/plist"
 	"maunium.net/go/mautrix/bridgev2"
 	"maunium.net/go/mautrix/bridgev2/networkid"
@@ -639,4 +644,54 @@ func ConvertCalendarEventToHref(calendarEvent any, createdAt time.Time) (*string
 		}
 		return nil, nil
 	}
+}
+
+const (
+	THUMBNAIL_SIZE      = 512
+	THUMBNAIL_SIZE_HALF = THUMBNAIL_SIZE / 2
+)
+
+func AddMessagesIconToAvatarImage(avatar []byte) ([]byte, error) {
+	avatarImage, _, err := image.Decode(bytes.NewReader(avatar))
+	if err != nil {
+		return avatar, err
+	}
+
+	messagesIconFile, err := os.Open("../img/Messages.png")
+	if err != nil {
+		return avatar, err
+	}
+	messagesIconOriginal, _, err := image.Decode(messagesIconFile)
+	if err != nil {
+		return avatar, err
+	}
+
+	b := avatarImage.Bounds()
+	/* TODO: crop the image if it's not a square
+	if b.Max.X != b.Max.Y {}
+	*/
+
+	edited := image.NewRGBA(image.Rect(0, 0, THUMBNAIL_SIZE, THUMBNAIL_SIZE))
+	draw.NearestNeighbor.Scale(edited, edited.Bounds(), avatarImage, b, draw.Over, nil)
+
+	CENTER_TO_CORNER_DISTANCE := math.Sqrt(2 * math.Pow(float64(THUMBNAIL_SIZE_HALF), 2))
+	CIRCLE_TO_THUMBNAIL_EDGE := CENTER_TO_CORNER_DISTANCE - float64(THUMBNAIL_SIZE_HALF)
+	CENTER_TO_ICON_CORNER_DISTANCE := int(math.Sqrt(math.Pow(CIRCLE_TO_THUMBNAIL_EDGE, 2) / 2))
+	ICON_SIZE := THUMBNAIL_SIZE_HALF - (2 * CENTER_TO_ICON_CORNER_DISTANCE)
+	ICON_XY := THUMBNAIL_SIZE_HALF + CENTER_TO_ICON_CORNER_DISTANCE
+
+	if messagesIconOriginal.Bounds().Max.X > ICON_SIZE || messagesIconOriginal.Bounds().Max.Y > ICON_SIZE {
+		messagesIconScaled := image.NewRGBA(image.Rect(0, 0, ICON_SIZE, ICON_SIZE))
+		draw.NearestNeighbor.Scale(messagesIconScaled, messagesIconScaled.Bounds(), messagesIconOriginal, messagesIconOriginal.Bounds(), draw.Over, nil)
+		draw.Draw(edited, image.Rect(ICON_XY, ICON_XY, ICON_XY+ICON_SIZE, ICON_XY+ICON_SIZE), messagesIconScaled, image.Pt(0, 0), draw.Over)
+	} else {
+		draw.Draw(edited, image.Rect(ICON_XY, ICON_XY, ICON_XY+ICON_SIZE, ICON_XY+ICON_SIZE), messagesIconOriginal, image.Pt(0, 0), draw.Over)
+	}
+
+	buf := new(bytes.Buffer)
+	err = jpeg.Encode(buf, edited, &jpeg.Options{Quality: 90})
+	if err != nil {
+		return avatar, err
+	}
+	return buf.Bytes(), err
 }

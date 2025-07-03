@@ -213,8 +213,10 @@ func (m *MessagesClient) GetChatInfo(ctx context.Context, portal *bridgev2.Porta
 		}
 	}
 
+	topic := fmt.Sprintf("MacOS Messages chat with %s", *chatName)
 	return &bridgev2.ChatInfo{
 		Name:   chatName,
+		Topic:  &topic,
 		Avatar: avatar,
 		Members: &bridgev2.ChatMemberList{
 			IsFull:    true,

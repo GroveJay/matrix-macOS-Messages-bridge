@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strconv"
@@ -70,6 +71,7 @@ func test_get_chat_details() {
 	checkError(err)
 	contactsMap, err := contactsClient.GetContactsMap()
 	checkError(err)
+	context := context.TODO()
 	for ID := range chatMap {
 		chatID := macos.MakeMessagesPortalID("foobar", ID)
 		println(ID)
@@ -102,6 +104,13 @@ func test_get_chat_details() {
 			avatarID := "AvatarID: "
 			if v.UserInfo != nil && v.UserInfo.Avatar != nil {
 				avatarID = avatarID + string(v.UserInfo.Avatar.ID)
+				if v.UserInfo.Avatar.Get != nil {
+					if avatar, err := v.UserInfo.Avatar.Get(context); err != nil {
+						memberStrings = append(memberStrings, "error getting avatar")
+					} else {
+						memberStrings = append(memberStrings, fmt.Sprintf("avatar bytes: %d", len(avatar)))
+					}
+				}
 			}
 			memberStrings = append(memberStrings, avatarID)
 			println("\t\t" + strings.Join(memberStrings, " "))
@@ -219,6 +228,7 @@ func main() {
 			test_parse_surrounding_messages(firstArg)
 		}
 	} else {
-		test_parse_all_messages()
+		test_get_chat_details()
+		// test_parse_all_messages()
 	}
 }
