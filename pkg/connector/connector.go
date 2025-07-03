@@ -38,7 +38,7 @@ func (m *MessagesConnector) GetName() bridgev2.BridgeName {
 		NetworkIcon:      "mxc://maunium.net/tManJEpANASZvDVzvRvhILdX",
 		NetworkID:        "Messages",
 		BeeperBridgeType: "github.com/GroveJay/matrix-macOS-Messages-bridge",
-		DefaultPort:      29331,
+		DefaultPort:      29441,
 	}
 }
 
