@@ -26,7 +26,6 @@
 	<key>WorkingDirectory</key>
 	<string>/Applications/Matrix-MacOS-Messages-Bridge.app/Contents/MacOS/</string>
 	<key>RunAtLoad</key>
-	<key>RunAtLoad</key>
 	<true/>
 	<key>StandardErrorPath</key>
 	<string>/usr/local/var/log/matrix-macOS-Messages-bridge.error.log</string>
