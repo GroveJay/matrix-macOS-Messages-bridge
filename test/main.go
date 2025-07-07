@@ -75,7 +75,7 @@ func test_get_chat_details() {
 	for ID := range chatMap {
 		chatID := macos.MakeMessagesPortalID("foobar", ID)
 		println(ID)
-		chatName, avatar, err := messagesClient.GetChatDetails(chatID)
+		chatName, avatar, err := messagesClient.GetChatDetails(chatID, "/User/fakeUserHome")
 		checkError(err)
 		println("\tName: " + *chatName)
 		if avatar != nil {
@@ -228,7 +228,7 @@ func main() {
 			test_parse_surrounding_messages(firstArg)
 		}
 	} else {
-		test_get_chat_details()
-		// test_parse_all_messages()
+		// test_get_chat_details()
+		test_parse_all_messages()
 	}
 }

@@ -2,24 +2,46 @@ package connector
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 
 	"go.mau.fi/util/configupgrade"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/commands"
 	"maunium.net/go/mautrix/bridgev2/database"
 )
 
+const (
+	SYNC_MESSAGES_BY_ROW_COMMAND = "sync-message-by-row"
+	SYNC_MESSAGES_BY_ROW_ARGS    = "<ROWID>"
+)
+
 type MessagesConnector struct {
-	br *bridgev2.Bridge
+	Bridge *bridgev2.Bridge
+	Usage  string
 }
 
 var _ bridgev2.NetworkConnector = (*MessagesConnector)(nil)
 
 func (m *MessagesConnector) Init(b *bridgev2.Bridge) {
-	m.br = b
+	m.Bridge = b
+	m.Usage = fmt.Sprintf("Usage: `$cmdprefix %s %s`", SYNC_MESSAGES_BY_ROW_COMMAND, SYNC_MESSAGES_BY_ROW_ARGS)
+	m.Bridge.Commands.(*commands.Processor).AddHandler(&commands.FullHandler{
+		Func: m.SyncMessageByDBRowID,
+		Name: SYNC_MESSAGES_BY_ROW_COMMAND,
+		Help: commands.HelpMeta{
+			Section:     commands.HelpSectionChats,
+			Description: "Sync a specific message by its DB ROWID",
+			Args:        SYNC_MESSAGES_BY_ROW_ARGS,
+		},
+		RequiresAdmin:           true,
+		RequiresLogin:           true,
+		RequiresLoginPermission: true,
+	})
 }
 
 func (m *MessagesConnector) Start(context.Context) error {
-	m.br.Log.Info().Msg("Start")
+	m.Bridge.Log.Info().Msg("Start")
 	return nil
 }
 
@@ -68,4 +90,27 @@ func (m *MessagesConnector) LoadUserLogin(ctx context.Context, login *bridgev2.U
 		UserLogin: login,
 	}
 	return nil
+}
+
+func (m *MessagesConnector) SyncMessageByDBRowID(ce *commands.Event) {
+	login := ce.User.GetDefaultLogin()
+	if login == nil {
+		ce.Reply("Login not found")
+		return
+	}
+
+	if len(ce.Args) != 1 {
+		ce.Reply(m.Usage)
+		return
+	}
+	rowID, err := strconv.Atoi(ce.Args[0])
+	if err != nil {
+		ce.Reply(fmt.Sprintf("Error parsing ROWID: %v", err))
+	}
+
+	mc := login.Client.(*MessagesClient)
+	err = mc.HandleSyncMessageByRowID(rowID)
+	if err != nil {
+		ce.Reply(fmt.Sprintf("Error syncing message by ID: %w", err))
+	}
 }

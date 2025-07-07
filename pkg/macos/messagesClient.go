@@ -69,6 +69,7 @@ type MacOSMessagesClient struct {
 	newMessagesQuery       *sql.Stmt
 	messagesNewerThanQuery *sql.Stmt
 	messagesBetweenQuery   *sql.Stmt
+	messagesByRowIDQuery   *sql.Stmt
 	newReceiptsQuery       *sql.Stmt
 	attachmentsQuery       *sql.Stmt
 }
@@ -102,6 +103,9 @@ func GetMessagesClient(userName string, logger *zerolog.Logger) (*MacOSMessagesC
 	}
 	if client.messagesBetweenQuery, err = client.chatDB.Prepare(MessagesBetweenQuery); err != nil {
 		return nil, fmt.Errorf("failed to prepare messages between query: %w", err)
+	}
+	if client.messagesByRowIDQuery, err = client.chatDB.Prepare(MessagesByRowIDQuery); err != nil {
+		return nil, fmt.Errorf("failed to prepare messages by ID query: %w", err)
 	}
 	if client.newReceiptsQuery, err = client.chatDB.Prepare(NewRecieptsQuery); err != nil {
 		return nil, fmt.Errorf("failed to prepare new reciepts query: %w", err)
@@ -155,7 +159,7 @@ func (c MacOSMessagesClient) GetChatMemberMap(chatID networkid.PortalID, selfUse
 	}
 }
 
-func (c *MacOSMessagesClient) GetChatDetails(chatID networkid.PortalID) (*string, *bridgev2.Avatar, error) {
+func (c *MacOSMessagesClient) GetChatDetails(chatID networkid.PortalID, home string) (*string, *bridgev2.Avatar, error) {
 	chatGUID := ChatGUIDFromPortalID(chatID)
 	chatRow := c.chatQuery.QueryRow(chatGUID)
 	var name string
@@ -174,10 +178,7 @@ func (c *MacOSMessagesClient) GetChatDetails(chatID networkid.PortalID) (*string
 		}
 		return &name, nil, nil
 	}
-	path, err := ReplaceHomeDirectory(path)
-	if err != nil {
-		return &name, nil, err
-	}
+	path = ReplaceHomeDirectory(path, home)
 	avatar := &bridgev2.Avatar{
 		ID: networkid.AvatarID(fmt.Sprintf("%s-%s", chatGUID, fileName)),
 		Get: func(ctx context.Context) ([]byte, error) {
@@ -252,6 +253,21 @@ func (c *MacOSMessagesClient) GetMessagesBetween(minRowID int, maxRowID int) ([]
 		return nil, fmt.Errorf("error querying messages between rowids %d and %d: %w", minRowID, maxRowID, err)
 	}
 	return c.parseMessages(res)
+}
+
+func (c *MacOSMessagesClient) GetMessageByRowID(rowID int) (*DBMessage, error) {
+	res, err := c.messagesByRowIDQuery.Query(rowID)
+	if err != nil {
+		return nil, fmt.Errorf("error querying message by rowID %d: %w", rowID, err)
+	}
+	results, err := c.parseMessages(res)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing messages for rowID %d: %w", rowID, err)
+	}
+	if len(results) != 1 {
+		return nil, fmt.Errorf("more than one message result for rowID %d", rowID)
+	}
+	return results[0], nil
 }
 
 func (c *MacOSMessagesClient) GetReadReceiptsSince(minDate time.Time) ([]*ReadReceipt, time.Time, error) {
@@ -619,4 +635,13 @@ func (c *MacOSMessagesClient) parseMessages(res *sql.Rows) ([]*DBMessage, error)
 		dbMessages = append(dbMessages, dbMessage)
 	}
 	return dbMessages, nil
+}
+
+func (c *MacOSMessagesClient) SendMessage(msg *bridgev2.MatrixMessage) error {
+	chatGUID := ChatGUIDFromPortalID(msg.Portal.ID)
+	if chatGUID == "" {
+		return fmt.Errorf("empty chatGUID from incoming message Portal ID: %s", string(msg.Portal.ID))
+	}
+
+	return nil
 }

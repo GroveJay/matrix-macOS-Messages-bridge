@@ -76,6 +76,11 @@ WHERE message.ROWID > $1 AND message.ROWID < $2
 ORDER BY message.date ASC
 `
 
+const MessagesByRowIDQuery = baseMessagesQuery + `
+WHERE message.ROWID == $1
+ORDER BY message.date ASC
+`
+
 const NewRecieptsQuery = `
 SELECT chat.guid, message.guid, message.is_from_me, message.date_read
 FROM message

@@ -159,15 +159,11 @@ func ParseFormatPhoneNumber(phoneNumber string, countryCode string) (*networkid.
 	}
 }
 
-func ReplaceHomeDirectory(input string) (string, error) {
+func ReplaceHomeDirectory(input string, home string) string {
 	if strings.HasPrefix(input, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("failed to get home directory: %w", err)
-		}
-		return filepath.Join(home, input[2:]), nil
+		return filepath.Join(home, input[2:])
 	}
-	return input, nil
+	return input
 }
 
 // https://github.com/tinkerator/xxd/blob/main/xxd.go

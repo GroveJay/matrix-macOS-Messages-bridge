@@ -3,6 +3,7 @@ package connector
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ type MessagesClient struct {
 	ReadReceiptsChannel          chan *macos.ReadReceipt
 	HandleMessagesStopChannel    chan struct{}
 	DryRun                       bool
+	UserHomeDir                  string
 }
 
 var _ bridgev2.NetworkAPI = (*MessagesClient)(nil)
@@ -77,6 +79,17 @@ func (m *MessagesClient) Connect(ctx context.Context) {
 		return
 	}
 	m.UserLogin.Log.Info().Msgf("Validated Messages Client for userID %s", userID)
+
+	m.UserHomeDir, err = os.UserHomeDir()
+	if err != nil {
+		m.UserLogin.BridgeState.Send(status.BridgeState{
+			StateEvent: status.StateUnknownError,
+			Error:      "macos-messages-connect-user-home-error",
+			Message:    fmt.Sprintf("failed to get home directory: %w", err),
+			Info:       map[string]any{},
+		})
+		return
+	}
 
 	m.MessagesDBWatcherStopChannel = make(chan struct{}, 1)
 	m.HandleMessagesStopChannel = make(chan struct{}, 1)
@@ -169,7 +182,7 @@ func (m *MessagesClient) IsThisUser(ctx context.Context, userID networkid.UserID
 
 func (m *MessagesClient) GetChatInfo(ctx context.Context, portal *bridgev2.Portal) (*bridgev2.ChatInfo, error) {
 	m.UserLogin.Log.Debug().Msgf("[GetChatInfo] portalID: %s", portal.ID)
-	chatName, avatar, err := m.MacOSMessagesClient.GetChatDetails(portal.ID)
+	chatName, avatar, err := m.MacOSMessagesClient.GetChatDetails(portal.ID, m.UserHomeDir)
 	if err != nil {
 		m.UserLogin.Log.Error().Msgf("Failed to get chat details for group %s: %s", portal.ID, err)
 		return nil, err
@@ -235,9 +248,25 @@ func (m *MessagesClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost)
 	}
 }
 
-// HandleMatrixMessage implements bridgev2.NetworkAPI.
 func (m *MessagesClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.MatrixMessage) (message *bridgev2.MatrixMessageResponse, err error) {
-	panic("unimplemented")
+	if err := m.MacOSMessagesClient.SendMessage(msg); err != nil {
+		return nil, err
+	}
+	return &bridgev2.MatrixMessageResponse{}, nil
+}
+
+func (m *MessagesClient) HandleSyncMessageByRowID(rowID int) error {
+	dbMessage, err := m.MacOSMessagesClient.GetMessageByRowID(rowID)
+	if err != nil {
+		return err
+	}
+	convertedMesage, err := macos.ConvertDBMessage(*dbMessage, string(m.UserLogin.ID))
+	if err != nil {
+		return err
+	}
+	m.UserLogin.Log.Info().Msgf("Queued handling message for rowID %d", rowID)
+	m.MessagesChannel <- convertedMesage
+	return nil
 }
 
 func (m *MessagesClient) watchMessagesDBFile(watcher *fsnotify.Watcher, maxMessagesTimestamp int64) error {

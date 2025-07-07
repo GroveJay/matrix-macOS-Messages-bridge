@@ -26,6 +26,12 @@ func (m *MessagesClient) PortalKeyFromMessage(message *macos.Message) networkid.
 	}
 }
 
+func GetLogContextFunctionForMessage(message *macos.Message) func(c zerolog.Context) zerolog.Context {
+	return func(c zerolog.Context) zerolog.Context {
+		return c.Str("message_guid", message.GUID)
+	}
+}
+
 func (m *MessagesClient) QueueRemoteEventWrapper(evt bridgev2.RemoteEvent) {
 	if m.DryRun {
 		// m.UserLogin.Log.Info().Msgf("would send event: %s", evt.GetType())
@@ -78,13 +84,13 @@ func (m *MessagesClient) HandleTapback(message *macos.Message) {
 		})
 	}
 
+	portalKey := m.PortalKeyFromMessage(message)
+	m.UserLogin.Log.Info().Msgf("Queueing reaction sync for portal %s", portalKey.ID)
 	m.QueueRemoteEventWrapper(&simplevent.ReactionSync{
 		EventMeta: simplevent.EventMeta{
-			Type: bridgev2.RemoteEventReactionSync,
-			LogContext: func(c zerolog.Context) zerolog.Context {
-				return c.Str("message_guid", message.GUID)
-			},
-			PortalKey: m.PortalKeyFromMessage(message),
+			Type:       bridgev2.RemoteEventReactionSync,
+			LogContext: GetLogContextFunctionForMessage(message),
+			PortalKey:  portalKey,
 		},
 		TargetMessage: networkid.MessageID(message.Tapback.TargetGUID),
 		Reactions: &bridgev2.ReactionSyncData{
@@ -99,13 +105,12 @@ func (m *MessagesClient) HandleTapback(message *macos.Message) {
 }
 
 func (m *MessagesClient) HandleRetraction(message *macos.Message) {
+	m.UserLogin.Log.Info().Msgf("Queueing message removal")
 	m.QueueRemoteEventWrapper(&simplevent.MessageRemove{
 		EventMeta: simplevent.EventMeta{
-			Type: bridgev2.RemoteEventMessageRemove,
-			LogContext: func(c zerolog.Context) zerolog.Context {
-				return c.Str("message_guid", message.GUID)
-			},
-			PortalKey: m.PortalKeyFromMessage(message),
+			Type:       bridgev2.RemoteEventMessageRemove,
+			LogContext: GetLogContextFunctionForMessage(message),
+			PortalKey:  m.PortalKeyFromMessage(message),
 		},
 		TargetMessage: networkid.MessageID(message.GUID),
 		// OnlyForMe: true,
@@ -113,16 +118,15 @@ func (m *MessagesClient) HandleRetraction(message *macos.Message) {
 }
 
 func (m *MessagesClient) HandleEdit(message *macos.Message) {
+	m.UserLogin.Log.Info().Msgf("Queueing message edit")
 	m.QueueRemoteEventWrapper(&simplevent.Message[macos.Message]{
 		EventMeta: simplevent.EventMeta{
 			Sender: bridgev2.EventSender{
 				Sender:   networkid.UserID(message.HandleID),
 				IsFromMe: message.IsFromMe,
 			},
-			Type: bridgev2.RemoteEventEdit,
-			LogContext: func(c zerolog.Context) zerolog.Context {
-				return c.Str("message_guid", message.GUID)
-			},
+			Type:         bridgev2.RemoteEventEdit,
+			LogContext:   GetLogContextFunctionForMessage(message),
 			PortalKey:    m.PortalKeyFromMessage(message),
 			CreatePortal: true,
 			Timestamp:    time.Now(),
@@ -137,6 +141,7 @@ func (m *MessagesClient) HandleEdit(message *macos.Message) {
 func (m *MessagesClient) HandleNormalMessage(message *macos.Message) {
 	sender := networkid.UserID(message.HandleID)
 	portalKey := m.PortalKeyFromMessage(message)
+	m.UserLogin.Log.Info().Msgf("Queueing message")
 	m.QueueRemoteEventWrapper(&simplevent.Message[macos.Message]{
 		EventMeta: simplevent.EventMeta{
 			Sender: bridgev2.EventSender{
@@ -282,14 +287,13 @@ func (m *MessagesClient) HandleMessage(message *macos.Message) {
 	m.HandleNormalMessage(message)
 }
 
-func (m *MessagesClient) QueueMemberChatInfoChange(portalKey networkid.PortalKey, messageGUID string, userID networkid.UserID, membership event.Membership) {
+func (m *MessagesClient) QueueMemberChatInfoChange(portalKey networkid.PortalKey, message *macos.Message, userID networkid.UserID, membership event.Membership) {
+	m.UserLogin.Log.Info().Msgf("Queueing chat info change for portal %s and member %s to leave/ban (%t) or invite/join (%t)", portalKey.ID, userID, membership.IsLeaveOrBan(), membership.IsInviteOrJoin())
 	m.QueueRemoteEventWrapper(&simplevent.ChatInfoChange{
 		EventMeta: simplevent.EventMeta{
-			Type: bridgev2.RemoteEventChatInfoChange,
-			LogContext: func(c zerolog.Context) zerolog.Context {
-				return c.Str("message_guid", messageGUID)
-			},
-			PortalKey: portalKey,
+			Type:       bridgev2.RemoteEventChatInfoChange,
+			LogContext: GetLogContextFunctionForMessage(message),
+			PortalKey:  portalKey,
 		},
 		ChatInfoChange: &bridgev2.ChatInfoChange{
 			MemberChanges: &bridgev2.ChatMemberList{
@@ -311,17 +315,19 @@ func (m *MessagesClient) HandleMember(message *macos.Message) {
 	if message.GroupActionType == 1 {
 		membership = event.MembershipLeave
 	}
-	m.QueueMemberChatInfoChange(m.PortalKeyFromMessage(message), message.GUID, networkid.UserID(message.OtherID), membership)
+	portalKey := m.PortalKeyFromMessage(message)
+	m.UserLogin.Log.Info().Msgf("Queueing chat info change for portal %s with leave/ban %t and invite/join %t", portalKey.ID, membership.IsLeaveOrBan(), membership.IsInviteOrJoin())
+	m.QueueMemberChatInfoChange(portalKey, message, networkid.UserID(message.OtherID), membership)
 }
 
 func (m *MessagesClient) HandleName(message *macos.Message) {
+	portalKey := m.PortalKeyFromMessage(message)
+	m.UserLogin.Log.Info().Msgf("Queueing chat info change for group name for portal %s to %s", portalKey.ID, message.NewGroupTitle)
 	m.QueueRemoteEventWrapper(&simplevent.ChatInfoChange{
 		EventMeta: simplevent.EventMeta{
-			Type: bridgev2.RemoteEventChatInfoChange,
-			LogContext: func(c zerolog.Context) zerolog.Context {
-				return c.Str("message_guid", message.GUID)
-			},
-			PortalKey: m.PortalKeyFromMessage(message),
+			Type:       bridgev2.RemoteEventChatInfoChange,
+			LogContext: GetLogContextFunctionForMessage(message),
+			PortalKey:  portalKey,
 		},
 		ChatInfoChange: &bridgev2.ChatInfoChange{
 			ChatInfo: &bridgev2.ChatInfo{
@@ -331,7 +337,9 @@ func (m *MessagesClient) HandleName(message *macos.Message) {
 	})
 }
 
-func (m *MessagesClient) HandleAvatarOrMemberLeave(message *macos.Message) {
+func (m *MessagesClient) HandleAvatarOrMemberLeave(message *macos.Message) error {
+	m.UserLogin.Log.Info().Msgf("Handling avatar or member leave with group action type %d", message.GroupActionType)
+	portalKey := m.PortalKeyFromMessage(message)
 	switch message.GroupActionType {
 	case macos.GroupActionAddUser:
 		// This happens when you leave a chat
@@ -339,46 +347,41 @@ func (m *MessagesClient) HandleAvatarOrMemberLeave(message *macos.Message) {
 			message.HandleID = string(m.UserLogin.ID)
 		}
 		if message.ChatGUID == "" {
-			m.UserLogin.Log.Error().Msgf("[%d] no chat guid found for message leaving chat", message.DBRowID)
-			return
+			return fmt.Errorf("[%d] no chat guid found for message leaving chat", message.DBRowID)
 		}
-		m.QueueMemberChatInfoChange(m.PortalKeyFromMessage(message), message.GUID, networkid.UserID(message.HandleID), event.MembershipLeave)
+		m.UserLogin.Log.Info().Msgf("Queueing event for user leaving portal %s", portalKey.ID)
+		m.QueueMemberChatInfoChange(portalKey, message, networkid.UserID(message.HandleID), event.MembershipLeave)
 	case macos.GroupActionSetAvatar:
+		if len(message.Attachments) < 1 {
+			return fmt.Errorf("[%d] no attachments found in update avatar message", message.DBRowID)
+		}
+		firstAttachment := message.Attachments[slices.Collect(maps.Keys(message.Attachments))[0]]
+		firstAttachmentPathOnDisk := macos.ReplaceHomeDirectory(firstAttachment.PathOnDisk, m.UserHomeDir)
+		m.UserLogin.Log.Info().Msgf("Queueing event for chat avatar change for portal %s", portalKey.ID)
 		m.QueueRemoteEventWrapper(&simplevent.ChatInfoChange{
 			EventMeta: simplevent.EventMeta{
-				Type: bridgev2.RemoteEventChatInfoChange,
-				LogContext: func(c zerolog.Context) zerolog.Context {
-					return c.Str("message_guid", message.GUID)
-				},
-				PortalKey: m.PortalKeyFromMessage(message),
+				Type:       bridgev2.RemoteEventChatInfoChange,
+				LogContext: GetLogContextFunctionForMessage(message),
+				PortalKey:  portalKey,
 			},
 			ChatInfoChange: &bridgev2.ChatInfoChange{
 				ChatInfo: &bridgev2.ChatInfo{
 					Avatar: &bridgev2.Avatar{
 						ID: networkid.AvatarID(fmt.Sprintf("%s-avatar", message.GUID)),
 						Get: func(ctx context.Context) (result []byte, err error) {
-							if len(message.Attachments) < 1 {
-								return nil, fmt.Errorf("no attachments found in update avatar message")
-							}
-							firstAttachment := message.Attachments[slices.Collect(maps.Keys(message.Attachments))[0]]
-							firstAttachment.PathOnDisk, err = macos.ReplaceHomeDirectory(firstAttachment.PathOnDisk)
-							if err != nil {
-								return nil, fmt.Errorf("getting avatar path: %w", err)
-							}
-							return os.ReadFile(firstAttachment.PathOnDisk)
+							return os.ReadFile(firstAttachmentPathOnDisk)
 						},
 					},
 				},
 			},
 		})
 	case macos.GroupActionRemoveAvatar:
+		m.UserLogin.Log.Info().Msgf("Queueing event for chat avatar removal for portal %s", portalKey)
 		m.QueueRemoteEventWrapper(&simplevent.ChatInfoChange{
 			EventMeta: simplevent.EventMeta{
-				Type: bridgev2.RemoteEventChatInfoChange,
-				LogContext: func(c zerolog.Context) zerolog.Context {
-					return c.Str("message_guid", message.GUID)
-				},
-				PortalKey: m.PortalKeyFromMessage(message),
+				Type:       bridgev2.RemoteEventChatInfoChange,
+				LogContext: GetLogContextFunctionForMessage(message),
+				PortalKey:  portalKey,
 			},
 			ChatInfoChange: &bridgev2.ChatInfoChange{
 				ChatInfo: &bridgev2.ChatInfo{
@@ -389,11 +392,13 @@ func (m *MessagesClient) HandleAvatarOrMemberLeave(message *macos.Message) {
 			},
 		})
 	default:
-		m.UserLogin.Log.Warn().Err(fmt.Errorf("unrecognized message type combination (item_type: %d, group_action_type: %d)", message.ItemType, message.GroupActionType))
+		return fmt.Errorf("unrecognized message type combination (item_type: %d, group_action_type: %d)", message.ItemType, message.GroupActionType)
 	}
+	return nil
 }
 
 func (m *MessagesClient) HandleiMessage(message *macos.Message) error {
+	m.UserLogin.Log.Info().Msgf("Handling message of type %d", message.ItemType)
 	switch message.ItemType {
 	case macos.ItemTypeMessage:
 		m.HandleMessage(message)
@@ -402,13 +407,13 @@ func (m *MessagesClient) HandleiMessage(message *macos.Message) error {
 	case macos.ItemTypeName:
 		m.HandleName(message)
 	case macos.ItemTypeAvatar:
-		m.HandleAvatarOrMemberLeave(message)
+		return m.HandleAvatarOrMemberLeave(message)
 	case macos.ItemTypeLocationSharing:
 		m.UserLogin.Log.Warn().Msg("Skipping Location Sharing message")
 	case macos.ItemTypeShareplay:
 		m.UserLogin.Log.Warn().Msg("Skipping Shareplay message")
 	default:
-		m.UserLogin.Log.Warn().Msgf("Skipping message [%s] of unknown type %d", message.GUID, message.ItemType)
+		return fmt.Errorf("skipped message [%s] of unknown type %d", message.GUID, message.ItemType)
 	}
 	return nil
 }
