@@ -17,7 +17,7 @@
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>HOME</key>
-		<string>/Users/jrgrover</string>
+		<string>USER_HOME</string>
 	</dict>
 	<key>ProgramArguments</key>
 	<array>

@@ -87,7 +87,7 @@ launchctl load ~/Library/LaunchAgents/matrix-macOS-Messages-bridge.plist
 ```
 To remove the LaunchAgent run:
 ```bash
-launchctl bootout matrix-macOS-Messages-bridge
+launchctl bootout gui/501/matrix-macOS-Messages-bridge
 ```
 10.   Check the error logs at `/usr/local/var/log/matrix-macOS-Messages-bridge.error.log` and regular logs at `/usr/local/var/log/matrix-macOS-Messages-bridge.log`
 11.   Message the bot in your homeserver at `@Messagesbot:<server_url>`
