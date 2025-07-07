@@ -209,11 +209,13 @@ func (m *MessagesClient) GetChatInfo(ctx context.Context, portal *bridgev2.Porta
 
 	if len(memberMap) == 2 {
 		m.UserLogin.Log.Debug().Msgf("[GetChatInfo] member map of 2, setting avatar")
-		for _, chatMember := range memberMap {
+		for key, chatMember := range memberMap {
 			if !chatMember.EventSender.IsFromMe {
-				m.UserLogin.Log.Debug().Msgf("[GetChatInfo] set avatar to avatar for %s", *chatMember.UserInfo.Name)
-				avatar = chatMember.UserInfo.Avatar
-				break
+				if chatMember.UserInfo.Avatar != nil {
+					m.UserLogin.Log.Debug().Msgf("[GetChatInfo] set avatar to avatar for %s", key)
+					avatar = chatMember.UserInfo.Avatar
+					break
+				}
 			}
 		}
 	}
