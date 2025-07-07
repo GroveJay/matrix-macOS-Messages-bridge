@@ -76,8 +76,8 @@ WHERE message.ROWID > $1 AND message.ROWID < $2
 ORDER BY message.date ASC
 `
 
-const MessagesByRowIDQuery = baseMessagesQuery + `
-WHERE message.ROWID == $1
+const MessagesByGUID = baseMessagesQuery + `
+WHERE message.guid == $1
 ORDER BY message.date ASC
 `
 

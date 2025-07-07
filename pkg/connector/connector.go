@@ -3,7 +3,6 @@ package connector
 import (
 	"context"
 	"fmt"
-	"strconv"
 
 	"go.mau.fi/util/configupgrade"
 	"maunium.net/go/mautrix/bridgev2"
@@ -12,8 +11,9 @@ import (
 )
 
 const (
-	SYNC_MESSAGES_BY_ROW_COMMAND = "sync-message-by-row"
-	SYNC_MESSAGES_BY_ROW_ARGS    = "<ROWID>"
+	SYNC_MESSAGES_BY_GUID_COMMAND = "sync-message-by-guid"
+	SYNC_MESSAGES_BY_GUID_ARGS    = "<GUID>"
+	SYNC_MESSAGES_BY_GUID_TEXT    = "Sync a specific message by its GUID"
 )
 
 type MessagesConnector struct {
@@ -25,14 +25,14 @@ var _ bridgev2.NetworkConnector = (*MessagesConnector)(nil)
 
 func (m *MessagesConnector) Init(b *bridgev2.Bridge) {
 	m.Bridge = b
-	m.Usage = fmt.Sprintf("Usage: `$cmdprefix %s %s`", SYNC_MESSAGES_BY_ROW_COMMAND, SYNC_MESSAGES_BY_ROW_ARGS)
+	m.Usage = fmt.Sprintf("Usage: `$cmdprefix %s %s`", SYNC_MESSAGES_BY_GUID_COMMAND, SYNC_MESSAGES_BY_GUID_ARGS)
 	m.Bridge.Commands.(*commands.Processor).AddHandler(&commands.FullHandler{
-		Func: m.SyncMessageByDBRowID,
-		Name: SYNC_MESSAGES_BY_ROW_COMMAND,
+		Func: m.SyncMessageByGUID,
+		Name: SYNC_MESSAGES_BY_GUID_COMMAND,
 		Help: commands.HelpMeta{
 			Section:     commands.HelpSectionChats,
-			Description: "Sync a specific message by its DB ROWID",
-			Args:        SYNC_MESSAGES_BY_ROW_ARGS,
+			Description: SYNC_MESSAGES_BY_GUID_TEXT,
+			Args:        SYNC_MESSAGES_BY_GUID_ARGS,
 		},
 		RequiresAdmin:           true,
 		RequiresLogin:           true,
@@ -92,7 +92,7 @@ func (m *MessagesConnector) LoadUserLogin(ctx context.Context, login *bridgev2.U
 	return nil
 }
 
-func (m *MessagesConnector) SyncMessageByDBRowID(ce *commands.Event) {
+func (m *MessagesConnector) SyncMessageByGUID(ce *commands.Event) {
 	login := ce.User.GetDefaultLogin()
 	if login == nil {
 		ce.Reply("Login not found")
@@ -103,14 +103,9 @@ func (m *MessagesConnector) SyncMessageByDBRowID(ce *commands.Event) {
 		ce.Reply(m.Usage)
 		return
 	}
-	rowID, err := strconv.Atoi(ce.Args[0])
-	if err != nil {
-		ce.Reply(fmt.Sprintf("Error parsing ROWID: %v", err))
-	}
 
 	mc := login.Client.(*MessagesClient)
-	err = mc.HandleSyncMessageByRowID(rowID)
-	if err != nil {
-		ce.Reply(fmt.Sprintf("Error syncing message by ID: %v", err))
+	if err := mc.HandleSyncMessageByGUID(ce.Args[0]); err != nil {
+		ce.Reply(fmt.Sprintf("Error syncing message by GUID: %v", err))
 	}
 }

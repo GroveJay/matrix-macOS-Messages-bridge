@@ -142,6 +142,16 @@ func test_parse_surrounding_messages(messageID string) {
 	testHandleMessages(messages, logger)
 }
 
+func test_parse_single_message(guid string) {
+	logger, err := prepareLog([]byte(logConfig))
+	checkError(err)
+	messagesClient, err := macos.GetMessagesClient("foobar", logger)
+	checkError(err)
+	message, err := messagesClient.GetMessageByGUID(guid)
+	checkError(err)
+	testHandleMessages([]*macos.DBMessage{message}, logger)
+}
+
 func testHandleMessages(messages []*macos.DBMessage, logger *zerolog.Logger) {
 	println(fmt.Sprintf("parsing %d message(s)", len(messages)))
 	tw := tabwriter.NewWriter(os.Stdout, 1, 0, 1, ' ', tabwriter.Debug)
@@ -225,7 +235,8 @@ func main() {
 		if strings.Contains(firstArg, "-attributedBody") {
 			test_decode_stream_typed(firstArg)
 		} else {
-			test_parse_surrounding_messages(firstArg)
+			test_parse_single_message(firstArg)
+			//test_parse_surrounding_messages(firstArg)
 		}
 	} else {
 		// test_get_chat_details()

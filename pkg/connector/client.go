@@ -242,8 +242,8 @@ func (m *MessagesClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.
 	return &bridgev2.MatrixMessageResponse{}, nil
 }
 
-func (m *MessagesClient) HandleSyncMessageByRowID(rowID int) error {
-	dbMessage, err := m.MacOSMessagesClient.GetMessageByRowID(rowID)
+func (m *MessagesClient) HandleSyncMessageByGUID(guid string) error {
+	dbMessage, err := m.MacOSMessagesClient.GetMessageByGUID(guid)
 	if err != nil {
 		return err
 	}
@@ -251,7 +251,7 @@ func (m *MessagesClient) HandleSyncMessageByRowID(rowID int) error {
 	if err != nil {
 		return err
 	}
-	m.UserLogin.Log.Info().Msgf("Queued handling message for rowID %d", rowID)
+	m.UserLogin.Log.Info().Msgf("Queued handling message for guid %s", guid)
 	m.MessagesChannel <- convertedMesage
 	return nil
 }

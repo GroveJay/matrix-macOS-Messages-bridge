@@ -70,7 +70,7 @@ type MacOSMessagesClient struct {
 	newMessagesQuery       *sql.Stmt
 	messagesNewerThanQuery *sql.Stmt
 	messagesBetweenQuery   *sql.Stmt
-	messagesByRowIDQuery   *sql.Stmt
+	messagesByGUIDQuery    *sql.Stmt
 	newReceiptsQuery       *sql.Stmt
 	attachmentsQuery       *sql.Stmt
 }
@@ -108,8 +108,8 @@ func GetMessagesClient(userName string, logger *zerolog.Logger) (*MacOSMessagesC
 	if client.messagesBetweenQuery, err = client.chatDB.Prepare(MessagesBetweenQuery); err != nil {
 		return nil, fmt.Errorf("failed to prepare messages between query: %w", err)
 	}
-	if client.messagesByRowIDQuery, err = client.chatDB.Prepare(MessagesByRowIDQuery); err != nil {
-		return nil, fmt.Errorf("failed to prepare messages by ID query: %w", err)
+	if client.messagesByGUIDQuery, err = client.chatDB.Prepare(MessagesByGUID); err != nil {
+		return nil, fmt.Errorf("failed to prepare messages by GUID: %w", err)
 	}
 	if client.newReceiptsQuery, err = client.chatDB.Prepare(NewRecieptsQuery); err != nil {
 		return nil, fmt.Errorf("failed to prepare new reciepts query: %w", err)
@@ -259,17 +259,17 @@ func (c *MacOSMessagesClient) GetMessagesBetween(minRowID int, maxRowID int) ([]
 	return c.parseMessages(res)
 }
 
-func (c *MacOSMessagesClient) GetMessageByRowID(rowID int) (*DBMessage, error) {
-	res, err := c.messagesByRowIDQuery.Query(rowID)
+func (c *MacOSMessagesClient) GetMessageByGUID(guid string) (*DBMessage, error) {
+	res, err := c.messagesByGUIDQuery.Query(guid)
 	if err != nil {
-		return nil, fmt.Errorf("error querying message by rowID %d: %w", rowID, err)
+		return nil, fmt.Errorf("error querying message by GUID %s: %w", guid, err)
 	}
 	results, err := c.parseMessages(res)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing messages for rowID %d: %w", rowID, err)
+		return nil, fmt.Errorf("error parsing messages for GUID %s: %w", guid, err)
 	}
 	if len(results) != 1 {
-		return nil, fmt.Errorf("more than one message result for rowID %d", rowID)
+		return nil, fmt.Errorf("more than one message result for GUID %s", guid)
 	}
 	return results[0], nil
 }
