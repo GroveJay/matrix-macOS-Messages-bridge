@@ -193,12 +193,17 @@ func (m *MessagesClient) GetChatInfo(ctx context.Context, portal *bridgev2.Porta
 
 	if *chatName == "" {
 		memberNames := []string{}
-		for _, chatMember := range memberMap {
+		for key, chatMember := range memberMap {
 			if !chatMember.EventSender.IsFromMe {
-				memberNames = append(memberNames, *chatMember.UserInfo.Name)
+				if chatMember.UserInfo.Name != nil {
+					memberNames = append(memberNames, *chatMember.UserInfo.Name)
+				} else {
+					memberNames = append(memberNames, string(key))
+				}
 			}
 		}
-		*chatName = strings.Join(memberNames, ", ")
+		memberNamesJoined := strings.Join(memberNames, ", ")
+		chatName = &memberNamesJoined
 	}
 	m.UserLogin.Log.Debug().Msgf("[GetChatInfo] final chatName: %s", *chatName)
 

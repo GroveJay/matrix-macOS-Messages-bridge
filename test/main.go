@@ -118,6 +118,31 @@ func test_get_chat_details() {
 	}
 }
 
+func test_get_chat_info() {
+	logger, err := prepareLog([]byte(logConfig))
+	checkError(err)
+	mc := &connector.MessagesClient{
+		UserLogin: &bridgev2.UserLogin{
+			UserLogin: &database.UserLogin{
+				ID: networkid.UserLoginID("foobar"),
+			},
+			Log: *logger,
+		},
+		DryRun: true,
+	}
+	mc.MacOSMessagesClient, err = macos.GetMessagesClient("foobar", logger)
+	checkError(err)
+	mc.MacOSContactsClient, err = macos.GetContactsClient("foobar")
+	checkError(err)
+	mc.GetChatInfo(context.TODO(), &bridgev2.Portal{
+		Portal: &database.Portal{
+			PortalKey: networkid.PortalKey{
+				ID: "MessagesID|+19737966824|SMS;-;+12103295244",
+			},
+		},
+	})
+}
+
 func test_parse_all_messages() {
 	logger, err := prepareLog([]byte(logConfig))
 	checkError(err)
@@ -240,6 +265,7 @@ func main() {
 		}
 	} else {
 		// test_get_chat_details()
-		test_parse_all_messages()
+		// test_parse_all_messages()
+		test_get_chat_info()
 	}
 }
