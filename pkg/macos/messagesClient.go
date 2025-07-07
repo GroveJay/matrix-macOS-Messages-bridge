@@ -62,6 +62,7 @@ type MacOSMessagesClient struct {
 	log                    *zerolog.Logger
 	chatDB                 *sql.DB
 	chatDBPath             string
+	userHomeDir            string
 	groupMemberQuery       *sql.Stmt
 	chatQuery              *sql.Stmt
 	groupActionQuery       *sql.Stmt
@@ -81,6 +82,9 @@ func GetMessagesClient(userName string, logger *zerolog.Logger) (*MacOSMessagesC
 	var err error
 	if client.chatDB, client.chatDBPath, err = openChatDB(); err != nil {
 		return nil, fmt.Errorf("failed to open chat db: %w", err)
+	}
+	if client.userHomeDir, err = os.UserHomeDir(); err != nil {
+		return nil, fmt.Errorf("failed to get user home dir: %w", err)
 	}
 
 	if client.groupMemberQuery, err = client.chatDB.Prepare(GroupMemberQuery); err != nil {
@@ -159,7 +163,7 @@ func (c MacOSMessagesClient) GetChatMemberMap(chatID networkid.PortalID, selfUse
 	}
 }
 
-func (c *MacOSMessagesClient) GetChatDetails(chatID networkid.PortalID, home string) (*string, *bridgev2.Avatar, error) {
+func (c *MacOSMessagesClient) GetChatDetails(chatID networkid.PortalID) (*string, *bridgev2.Avatar, error) {
 	chatGUID := ChatGUIDFromPortalID(chatID)
 	chatRow := c.chatQuery.QueryRow(chatGUID)
 	var name string
@@ -178,7 +182,7 @@ func (c *MacOSMessagesClient) GetChatDetails(chatID networkid.PortalID, home str
 		}
 		return &name, nil, nil
 	}
-	path = ReplaceHomeDirectory(path, home)
+	path = ReplaceHomeDirectory(path, c.userHomeDir)
 	avatar := &bridgev2.Avatar{
 		ID: networkid.AvatarID(fmt.Sprintf("%s-%s", chatGUID, fileName)),
 		Get: func(ctx context.Context) ([]byte, error) {
@@ -596,6 +600,7 @@ func (c *MacOSMessagesClient) getAttachments(rowID int) (map[string]*Attachment,
 		if err != nil {
 			return nil, fmt.Errorf("error scanning attachment row for %d: %w", rowID, err)
 		}
+		attachment.PathOnDisk = ReplaceHomeDirectory(attachment.PathOnDisk, c.userHomeDir)
 		if len(stickerUserInfo) > 0 {
 			plistDictionary := make(map[string]any, 0)
 			if err := plist.NewDecoder(bytes.NewReader(stickerUserInfo)).Decode(plistDictionary); err != nil {

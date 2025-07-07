@@ -3,7 +3,6 @@ package connector
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -26,7 +25,6 @@ type MessagesClient struct {
 	ReadReceiptsChannel          chan *macos.ReadReceipt
 	HandleMessagesStopChannel    chan struct{}
 	DryRun                       bool
-	UserHomeDir                  string
 }
 
 var _ bridgev2.NetworkAPI = (*MessagesClient)(nil)
@@ -79,17 +77,6 @@ func (m *MessagesClient) Connect(ctx context.Context) {
 		return
 	}
 	m.UserLogin.Log.Info().Msgf("Validated Messages Client for userID %s", userID)
-
-	m.UserHomeDir, err = os.UserHomeDir()
-	if err != nil {
-		m.UserLogin.BridgeState.Send(status.BridgeState{
-			StateEvent: status.StateUnknownError,
-			Error:      "macos-messages-connect-user-home-error",
-			Message:    fmt.Sprintf("failed to get home directory: %w", err),
-			Info:       map[string]any{},
-		})
-		return
-	}
 
 	m.MessagesDBWatcherStopChannel = make(chan struct{}, 1)
 	m.HandleMessagesStopChannel = make(chan struct{}, 1)
@@ -182,7 +169,7 @@ func (m *MessagesClient) IsThisUser(ctx context.Context, userID networkid.UserID
 
 func (m *MessagesClient) GetChatInfo(ctx context.Context, portal *bridgev2.Portal) (*bridgev2.ChatInfo, error) {
 	m.UserLogin.Log.Debug().Msgf("[GetChatInfo] portalID: %s", portal.ID)
-	chatName, avatar, err := m.MacOSMessagesClient.GetChatDetails(portal.ID, m.UserHomeDir)
+	chatName, avatar, err := m.MacOSMessagesClient.GetChatDetails(portal.ID)
 	if err != nil {
 		m.UserLogin.Log.Error().Msgf("Failed to get chat details for group %s: %s", portal.ID, err)
 		return nil, err

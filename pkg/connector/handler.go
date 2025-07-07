@@ -355,8 +355,7 @@ func (m *MessagesClient) HandleAvatarOrMemberLeave(message *macos.Message) error
 		if len(message.Attachments) < 1 {
 			return fmt.Errorf("[%d] no attachments found in update avatar message", message.DBRowID)
 		}
-		firstAttachment := message.Attachments[slices.Collect(maps.Keys(message.Attachments))[0]]
-		firstAttachmentPathOnDisk := macos.ReplaceHomeDirectory(firstAttachment.PathOnDisk, m.UserHomeDir)
+		firstAttachmentPathOnDisk := message.Attachments[slices.Collect(maps.Keys(message.Attachments))[0]].PathOnDisk
 		m.UserLogin.Log.Info().Msgf("Queueing event for chat avatar change for portal %s", portalKey.ID)
 		m.QueueRemoteEventWrapper(&simplevent.ChatInfoChange{
 			EventMeta: simplevent.EventMeta{

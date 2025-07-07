@@ -33,10 +33,6 @@ type Attachment struct {
 }
 
 func (a Attachment) Read() (result []byte, err error) {
-	a.PathOnDisk, err = ReplaceHomeDirectory(a.PathOnDisk)
-	if err != nil {
-		return nil, fmt.Errorf("reading attachment: %w", err)
-	}
 	return os.ReadFile(a.PathOnDisk)
 }
 
