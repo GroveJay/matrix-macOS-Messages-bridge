@@ -111,6 +111,6 @@ func (m *MessagesConnector) SyncMessageByDBRowID(ce *commands.Event) {
 	mc := login.Client.(*MessagesClient)
 	err = mc.HandleSyncMessageByRowID(rowID)
 	if err != nil {
-		ce.Reply(fmt.Sprintf("Error syncing message by ID: %w", err))
+		ce.Reply(fmt.Sprintf("Error syncing message by ID: %v", err))
 	}
 }
