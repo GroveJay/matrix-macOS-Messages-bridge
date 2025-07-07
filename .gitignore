@@ -2,3 +2,5 @@ bridge
 test/main
 matrix-macOS-Messages-bridge.plist
 Matrix-MacOS-Messages-Bridge.app/Contents/MacOS/Matrix-MacOS-Messages-Bridge
+logs/**/*
+Matrix-MacOS-Messages-Bridge.app/Contents/MacOS/*.yaml
