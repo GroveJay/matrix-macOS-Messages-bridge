@@ -10,9 +10,9 @@
 			"request": "launch",
 			"mode": "debug",
 			"program": "${fileDirname}",
-			"args": [
-			   	"DBD14AC7-0E22-AD28-9C4B-62C53BC3CED1"
-			]
+			// "args": [
+			//    	"DBD14AC7-0E22-AD28-9C4B-62C53BC3CED1"
+			// ]
 		}
 	]
 }

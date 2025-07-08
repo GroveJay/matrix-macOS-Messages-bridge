@@ -260,8 +260,26 @@ func (m *MessagesClient) HandleSyncMessageByGUID(guid string) error {
 	if err != nil {
 		return err
 	}
-	m.UserLogin.Log.Info().Msgf("Queued handling message for guid %s", guid)
 	m.MessagesChannel <- convertedMesage
+	m.UserLogin.Log.Info().Msgf("Queued handling message for guid %s", guid)
+	return nil
+}
+
+func (m *MessagesClient) HandleSyncMessagesByDays(days int) error {
+	currentAppleTime := int64(1)
+	pastAppleTime := currentAppleTime - (int64(days) * 1)
+	dbMessages, err := m.MacOSMessagesClient.GetMessagesNewerThan(pastAppleTime)
+	if err != nil {
+		return err
+	}
+	for _, dbMessage := range dbMessages {
+		convertedMesage, err := macos.ConvertDBMessage(*dbMessage, string(m.UserLogin.ID))
+		if err != nil {
+			return err
+		}
+		m.MessagesChannel <- convertedMesage
+		m.UserLogin.Log.Info().Msgf("Handling syncing messages for past %d days, queued handling message with guid %s", days, convertedMesage.GUID)
+	}
 	return nil
 }
 
