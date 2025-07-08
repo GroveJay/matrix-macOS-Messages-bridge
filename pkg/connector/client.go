@@ -133,6 +133,7 @@ func (m *MessagesClient) Connect(ctx context.Context) {
 		defer watcher.Close()
 		err := m.watchMessagesDBFile(watcher, *initialMaxMessagesTimestamp)
 		if err != nil {
+			m.UserLogin.Log.Error().Msgf("error returned from db watcher function: %v", err)
 			m.UserLogin.BridgeState.Send(status.BridgeState{
 				StateEvent: status.StateUnknownError,
 				Error:      "macos-messages-watch-messages-error",
@@ -140,6 +141,7 @@ func (m *MessagesClient) Connect(ctx context.Context) {
 				Info:       map[string]any{},
 			})
 		}
+		m.UserLogin.Log.Warn().Msgf("db watcher function returned without error (possible shutdown initiated)")
 	}()
 
 	go m.handleMessagesLoop()
@@ -266,9 +268,9 @@ func (m *MessagesClient) HandleSyncMessageByGUID(guid string) error {
 func (m *MessagesClient) watchMessagesDBFile(watcher *fsnotify.Watcher, maxMessagesTimestamp int64) error {
 	var skipEvents bool
 	var handleLock sync.Mutex
-	nonSentMessages := make(map[string]bool)
 	minReceiptTime := time.Now()
 	for {
+		m.UserLogin.Log.Debug().Msgf("watchMessagesDBFile loop starting")
 		select {
 		case <-m.MessagesDBWatcherStopChannel:
 			return nil
@@ -276,9 +278,11 @@ func (m *MessagesClient) watchMessagesDBFile(watcher *fsnotify.Watcher, maxMessa
 			return fmt.Errorf("error in watcher: %w", err)
 		case _, ok := <-watcher.Events:
 			if !ok {
+				m.UserLogin.Log.Warn().Msgf("got not ok event from watcher")
 				return nil
 			}
 			if skipEvents {
+				m.UserLogin.Log.Debug().Msgf("currently skipping events as previous loop has not completed")
 				continue
 			}
 
@@ -299,10 +303,7 @@ func (m *MessagesClient) watchMessagesDBFile(watcher *fsnotify.Watcher, maxMessa
 						}
 
 						if !dbMessage.IsSent {
-							nonSentMessages[dbMessage.GUID] = true
-							continue
-						} else if _, ok := nonSentMessages[dbMessage.GUID]; ok {
-							delete(nonSentMessages, dbMessage.GUID)
+							m.UserLogin.Log.Debug().Msgf("message is not yet sent, skipping")
 							continue
 						}
 
@@ -316,16 +317,18 @@ func (m *MessagesClient) watchMessagesDBFile(watcher *fsnotify.Watcher, maxMessa
 							m.UserLogin.Log.Warn().Msgf("error converting db message: %v", err)
 							continue
 						}
-
+						m.UserLogin.Log.Debug().Msgf("sending message to handler channel")
 						m.MessagesChannel <- convertedMesage
 					}
 				}
+				m.UserLogin.Log.Debug().Msgf("getting read reciepts after fsevent")
 				var latestReadReceipts []*macos.ReadReceipt
 				var err error
 				if latestReadReceipts, minReceiptTime, err = m.MacOSMessagesClient.GetReadReceiptsSince(minReceiptTime); err != nil {
 					m.UserLogin.Log.Warn().Msgf("error reading receipts after fsevent: %v", err)
 				} else {
 					for _, readReceipt := range latestReadReceipts {
+						m.UserLogin.Log.Debug().Msgf("sending read reciept to handler channel")
 						m.ReadReceiptsChannel <- readReceipt
 					}
 				}
@@ -341,6 +344,7 @@ func (m *MessagesClient) handleMessagesLoop() {
 		var start time.Time
 		var thing string
 		var err error
+		m.UserLogin.Log.Debug().Msgf("handleMessagesLoop starting")
 		select {
 		case <-m.HandleMessagesStopChannel:
 			m.UserLogin.Log.Debug().Msg("Stopping handle messages loop")
