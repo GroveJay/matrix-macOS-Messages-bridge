@@ -266,8 +266,9 @@ func (m *MessagesClient) HandleSyncMessageByGUID(guid string) error {
 }
 
 func (m *MessagesClient) HandleSyncMessagesByDays(days int) error {
-	currentAppleTime := int64(1)
-	pastAppleTime := currentAppleTime - (int64(days) * 1)
+	now := time.Now()
+	daysAgo := now.AddDate(0, 0, -days)
+	pastAppleTime := daysAgo.UnixNano() - macos.AppleEpoch.UnixNano()
 	dbMessages, err := m.MacOSMessagesClient.GetMessagesNewerThan(pastAppleTime)
 	if err != nil {
 		return err
