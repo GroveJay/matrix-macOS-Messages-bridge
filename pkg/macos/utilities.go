@@ -653,7 +653,7 @@ func AddMessagesIconToAvatarImage(avatar []byte) ([]byte, error) {
 		return avatar, err
 	}
 
-	messagesIconFile, err := os.Open("../img/Messages.png")
+	messagesIconFile, err := os.Open("./img/Messages.png")
 	if err != nil {
 		return avatar, err
 	}
