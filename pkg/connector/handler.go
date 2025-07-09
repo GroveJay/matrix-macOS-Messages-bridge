@@ -81,11 +81,23 @@ func (m *MessagesClient) HandleTapback(message *macos.Message) {
 			Timestamp: message.CreatedAt,
 			Emoji:     emoji,
 			EmojiID:   networkid.EmojiID(emoji),
+			Sender: bridgev2.EventSender{
+				IsFromMe:    message.IsFromMe,
+				Sender:      networkid.UserID(message.HandleID),
+				SenderLogin: networkid.UserLoginID(message.HandleID),
+			},
 		})
 	}
 
 	portalKey := m.PortalKeyFromMessage(message)
-	m.UserLogin.Log.Info().Msgf("Queueing reaction sync for portal %s", portalKey.ID)
+	m.UserLogin.Log.Info().Msgf("Queueing reaction sync for portal %s and target GUID %s", portalKey.ID, message.Tapback.TargetGUID)
+	users := map[networkid.UserID]*bridgev2.ReactionSyncUser{}
+	users[networkid.UserID(message.HandleID)] = &bridgev2.ReactionSyncUser{
+		HasAllReactions: true,
+		MaxCount:        1,
+		Reactions:       reactions,
+	}
+
 	m.QueueRemoteEventWrapper(&simplevent.ReactionSync{
 		EventMeta: simplevent.EventMeta{
 			Type:       bridgev2.RemoteEventReactionSync,
@@ -94,12 +106,8 @@ func (m *MessagesClient) HandleTapback(message *macos.Message) {
 		},
 		TargetMessage: networkid.MessageID(message.Tapback.TargetGUID),
 		Reactions: &bridgev2.ReactionSyncData{
-			Users: map[networkid.UserID]*bridgev2.ReactionSyncUser{
-				networkid.UserID(message.HandleID): {
-					HasAllReactions: true,
-					Reactions:       reactions,
-				},
-			},
+			Users:       users,
+			HasAllUsers: true,
 		},
 	})
 }
