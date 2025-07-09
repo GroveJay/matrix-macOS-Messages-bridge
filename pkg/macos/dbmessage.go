@@ -99,7 +99,12 @@ func (t *Tapback) GetEmoji() string {
 }
 
 func (m *DBMessage) ParseTapback() (*Tapback, error) {
-	var tapback Tapback
+	tapback := Tapback{
+		TargetGUID: m.TapbackTargetGUID,
+		Type:       m.TapbackType,
+		Emoji:      m.TapbackEmoji,
+	}
+
 	if m.TapbackType >= 3000 && m.TapbackType < 4000 {
 		tapback.Type = m.TapbackType - TapbackRemoveOffset
 		tapback.Remove = true
@@ -120,8 +125,7 @@ func (m *DBMessage) ParseTapback() (*Tapback, error) {
 		}
 	} else if len(m.TapbackTargetGUID) != 36 {
 		return nil, fmt.Errorf("%w: '%s'", ErrUnknownTapbackTargetType, m.TapbackTargetGUID)
-	} else {
-		tapback.TargetGUID = m.TapbackTargetGUID
 	}
+
 	return &tapback, nil
 }
