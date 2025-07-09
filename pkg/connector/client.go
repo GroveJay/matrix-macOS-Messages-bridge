@@ -323,8 +323,8 @@ func (m *MessagesClient) watchMessagesDBFile(watcher *fsnotify.Watcher, maxMessa
 				} else {
 					m.UserLogin.Log.Debug().Msgf("Got %d newer messages", len(newDBMessages))
 					for _, dbMessage := range newDBMessages {
-						if !dbMessage.IsSent {
-							m.UserLogin.Log.Debug().Msgf("[%s] Message is not yet sent, skipping", dbMessage.GUID)
+						if !dbMessage.IsSent && dbMessage.IsFromMe {
+							m.UserLogin.Log.Debug().Msgf("[%s] Message from user is not yet sent, skipping", dbMessage.GUID)
 							continue
 						}
 
