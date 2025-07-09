@@ -120,6 +120,8 @@ func (m *DBMessage) ParseTapback() (*Tapback, error) {
 		}
 	} else if len(m.TapbackTargetGUID) != 36 {
 		return nil, fmt.Errorf("%w: '%s'", ErrUnknownTapbackTargetType, m.TapbackTargetGUID)
+	} else {
+		tapback.TargetGUID = m.TapbackTargetGUID
 	}
 	return &tapback, nil
 }
