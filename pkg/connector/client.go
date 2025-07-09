@@ -285,7 +285,7 @@ func (m *MessagesClient) HandleSyncMessagesByDays(days int) error {
 }
 
 func (m *MessagesClient) watchMessagesDBFile(watcher *fsnotify.Watcher, maxMessagesTimestamp int64) error {
-	var skipEvents bool
+	var latestEventSeenTime time.Time
 	var handleLock sync.Mutex
 	minReceiptTime := time.Now()
 	for {
@@ -300,46 +300,55 @@ func (m *MessagesClient) watchMessagesDBFile(watcher *fsnotify.Watcher, maxMessa
 				m.UserLogin.Log.Warn().Msgf("got not ok event from watcher")
 				return nil
 			}
-			if skipEvents {
+			if !latestEventSeenTime.IsZero() {
+				latestEventSeenTime = time.Now()
 				m.UserLogin.Log.Debug().Msgf("currently skipping events as previous loop has not completed")
 				continue
 			}
 
-			skipEvents = true
+			latestEventSeenTime = time.Now()
 			go func() {
 				handleLock.Lock()
 				defer handleLock.Unlock()
 
-				m.UserLogin.Log.Info().Msg("Sleeping for two seconds after getting fs event to allow for DB settling")
-				time.Sleep(2 * time.Second)
+				m.UserLogin.Log.Info().Msg("Waiting for other events to settle")
+				for time.Since(latestEventSeenTime) > (2 * time.Second) {
+					m.UserLogin.Log.Info().Msg("Waiting 1 second for other events to settle")
+					time.Sleep(1 * time.Second)
+				}
 
+				m.UserLogin.Log.Info().Msgf("Getting messages newer than %d", maxMessagesTimestamp)
 				if newDBMessages, err := m.MacOSMessagesClient.GetMessagesNewerThan(maxMessagesTimestamp); err != nil {
 					m.UserLogin.Log.Warn().Msgf("Error reading messages after fsevent: %v", err)
 				} else {
+					m.UserLogin.Log.Debug().Msgf("Got %d newer messages", len(newDBMessages))
 					for _, dbMessage := range newDBMessages {
-						if dbMessage.Date > maxMessagesTimestamp {
-							maxMessagesTimestamp = dbMessage.Date
-						}
-
 						if !dbMessage.IsSent {
-							m.UserLogin.Log.Debug().Msgf("message is not yet sent, skipping")
+							m.UserLogin.Log.Debug().Msgf("[%s] Message is not yet sent, skipping", dbMessage.GUID)
 							continue
 						}
 
 						if dbMessage.ChatGUID == "" {
-							m.UserLogin.Log.Warn().Msgf("[%d] Message found without associated chat id, skipping", dbMessage.RowID)
+							m.UserLogin.Log.Warn().Msgf("[%s] Message found without associated chat id, skipping", dbMessage.GUID)
 							continue
 						}
 
-						convertedMesage, err := macos.ConvertDBMessage(*dbMessage, string(m.UserLogin.ID))
+						convertedMessage, err := macos.ConvertDBMessage(*dbMessage, string(m.UserLogin.ID))
 						if err != nil {
-							m.UserLogin.Log.Warn().Msgf("error converting db message: %v", err)
+							m.UserLogin.Log.Warn().Msgf("[%s] Error converting db message: %v", dbMessage.GUID, err)
 							continue
 						}
+
+						if convertedMessage.DBDate > maxMessagesTimestamp {
+							m.UserLogin.Log.Debug().Msgf("[%s] Updating max timestamp to %d", convertedMessage.GUID, convertedMessage.DBDate)
+							maxMessagesTimestamp = convertedMessage.DBDate
+						}
+
 						m.UserLogin.Log.Debug().Msgf("sending message to handler channel")
-						m.MessagesChannel <- convertedMesage
+						m.MessagesChannel <- convertedMessage
 					}
 				}
+
 				m.UserLogin.Log.Debug().Msgf("getting read reciepts after fsevent")
 				var latestReadReceipts []*macos.ReadReceipt
 				var err error
@@ -352,7 +361,7 @@ func (m *MessagesClient) watchMessagesDBFile(watcher *fsnotify.Watcher, maxMessa
 					}
 				}
 
-				skipEvents = false
+				latestEventSeenTime = time.Time{}
 			}()
 		}
 	}
