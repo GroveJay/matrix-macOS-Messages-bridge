@@ -247,7 +247,21 @@ func (m *MessagesClient) GetUserInfo(ctx context.Context, ghost *bridgev2.Ghost)
 }
 
 func (m *MessagesClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.MatrixMessage) (message *bridgev2.MatrixMessageResponse, err error) {
-	if err := m.MacOSMessagesClient.SendMessage(msg); err != nil {
+	m.UserLogin.Log.Debug().Msgf("handling message from matrix")
+	if msg == nil {
+		m.UserLogin.Log.Error().Msgf("message was nil handling message from matrix")
+		return nil, fmt.Errorf("message was nil")
+	}
+	if msg.Portal == nil {
+		m.UserLogin.Log.Error().Msgf("portal was nil handling message from matrix")
+		return nil, fmt.Errorf("portal was nil handling message from matrix")
+	}
+	if msg.Content == nil {
+		m.UserLogin.Log.Error().Msgf("message content was nil handling message from matrix")
+		return nil, fmt.Errorf("message content was nil handling message from matrix")
+	}
+	if err := m.MacOSMessagesClient.SendMessage(msg.Portal.ID, msg.Content.Body); err != nil {
+		m.UserLogin.Log.Error().Msgf("error sending message to Messages: %v", err)
 		return nil, err
 	}
 	return &bridgev2.MatrixMessageResponse{}, nil
@@ -301,7 +315,7 @@ func (m *MessagesClient) watchMessagesDBFile(watcher *fsnotify.Watcher, maxMessa
 	var handleLock sync.Mutex
 	minReceiptTime := time.Now()
 	for {
-		m.UserLogin.Log.Debug().Msgf("watchMessagesDBFile loop starting")
+		// m.UserLogin.Log.Debug().Msgf("watchMessagesDBFile loop starting")
 		select {
 		case <-m.MessagesDBWatcherStopChannel:
 			return nil
@@ -314,7 +328,7 @@ func (m *MessagesClient) watchMessagesDBFile(watcher *fsnotify.Watcher, maxMessa
 			}
 			if !latestEventSeenTime.IsZero() {
 				latestEventSeenTime = time.Now()
-				m.UserLogin.Log.Debug().Msgf("currently skipping events as previous loop has not completed")
+				// m.UserLogin.Log.Debug().Msgf("currently skipping events as previous loop has not completed")
 				continue
 			}
 

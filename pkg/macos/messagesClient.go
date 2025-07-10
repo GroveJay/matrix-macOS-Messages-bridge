@@ -646,15 +646,15 @@ func (c *MacOSMessagesClient) parseMessages(res *sql.Rows) ([]*DBMessage, error)
 	return dbMessages, nil
 }
 
-func (c *MacOSMessagesClient) SendMessage(msg *bridgev2.MatrixMessage) error {
-	chatGUID := ChatGUIDFromPortalID(msg.Portal.ID)
+func (c *MacOSMessagesClient) SendMessage(portalID networkid.PortalID, body string) error {
+	chatGUID := ChatGUIDFromPortalID(portalID)
 	if chatGUID == "" {
-		return fmt.Errorf("empty chatGUID from incoming message Portal ID: %s", string(msg.Portal.ID))
+		return fmt.Errorf("empty chatGUID from incoming message Portal ID: %s", string(portalID))
 	}
-	if msg.Content.Body == "" {
+	if body == "" {
 		return fmt.Errorf("message content body was empty")
 	}
-	_, stderr, err := RunOsascript(SendMessageToChatGUID, chatGUID, msg.Content.Body)
+	_, stderr, err := RunOsascript(SendMessageToChatGUID, chatGUID, body)
 	if err != nil {
 		return err
 	}
