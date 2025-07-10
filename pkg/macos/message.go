@@ -316,8 +316,7 @@ func (m *Message) ConvertAttributedStringToFormattedHTMLParts(ctx context.Contex
 		*/
 
 		if _, ok := attributes[OneTimeCodeAttributeName]; ok {
-			// TODO: is a copy-able html element a thing yet?
-			formattedSubstring = fmt.Sprintf("<pre>%s</pre>", formattedSubstring)
+			formattedSubstring = fmt.Sprintf("<code>%s</code>", formattedSubstring)
 		}
 
 		if effectValue, ok := attributes[TextEffectAttributeName]; ok {

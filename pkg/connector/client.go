@@ -146,6 +146,8 @@ func (m *MessagesClient) Connect(ctx context.Context) {
 
 	go m.handleMessagesLoop()
 	m.UserLogin.Log.Info().Msgf("Started handle message loop and db fs watcher for userID %s", userID)
+
+	m.UserLogin.BridgeState.Send(status.BridgeState{StateEvent: status.StateConnected})
 }
 
 func (m *MessagesClient) Disconnect() {

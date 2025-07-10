@@ -112,6 +112,30 @@ ON e.ZOWNER=r.Z_PK WHERE
 );
 `
 
+const SendMessageToChatGUID = `
+on run {chatGUID, message}
+	tell application "Messages"
+		send message to chat id chatGUID
+	end tell
+end run
+`
+
+const CheckMessagesRunning = `
+set messages_app_id to get id of application "Messages"
+set messages_app to application id messages_app_id
+if messages_app is not running then
+	error "Messages not running"
+end if
+`
+
+const CheckContactsRunning = `
+set contacts_app_id to get id of application "Contacts"
+set contacts_app to application id contacts_app_id
+if contacts_app is not running then
+	error "Contacts not running"
+end if
+`
+
 const GetContactVCard = `
 on run {contactID}
 	tell application "Contacts"

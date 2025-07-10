@@ -121,6 +121,10 @@ func GetMessagesClient(userName string, logger *zerolog.Logger) (*MacOSMessagesC
 }
 
 func (c MacOSMessagesClient) ValidateConnection() error {
+	_, _, err := RunOsascript(CheckMessagesRunning)
+	if err != nil {
+		return fmt.Errorf("failed Messages running check: %v", err)
+	}
 	return nil
 }
 
@@ -647,6 +651,15 @@ func (c *MacOSMessagesClient) SendMessage(msg *bridgev2.MatrixMessage) error {
 	if chatGUID == "" {
 		return fmt.Errorf("empty chatGUID from incoming message Portal ID: %s", string(msg.Portal.ID))
 	}
-
+	if msg.Content.Body == "" {
+		return fmt.Errorf("message content body was empty")
+	}
+	_, stderr, err := RunOsascript(SendMessageToChatGUID, chatGUID, msg.Content.Body)
+	if err != nil {
+		return err
+	}
+	if stderr != "" {
+		return fmt.Errorf("stderr was not empty: %s", stderr)
+	}
 	return nil
 }

@@ -79,6 +79,10 @@ func GetContactsClient(userName string) (*MacOSContactsClient, error) {
 }
 
 func (c MacOSContactsClient) ValidateConnection() error {
+	_, _, err := RunOsascript(CheckContactsRunning)
+	if err != nil {
+		return fmt.Errorf("failed Messages running check: %v", err)
+	}
 	return nil
 }
 
