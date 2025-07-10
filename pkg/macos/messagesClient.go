@@ -656,10 +656,10 @@ func (c *MacOSMessagesClient) SendMessage(portalID networkid.PortalID, body stri
 	}
 	_, stderr, err := RunOsascript(SendMessageToChatGUID, chatGUID, body)
 	if err != nil {
-		return err
+		return fmt.Errorf("error sending message of length %d to chatGUID %s: %v", len(body), chatGUID, err)
 	}
 	if stderr != "" {
-		return fmt.Errorf("stderr was not empty: %s", stderr)
+		return fmt.Errorf("stderr was not empty sending message to chatGUID %s of length %d: %s", chatGUID, len(body), stderr)
 	}
 	return nil
 }

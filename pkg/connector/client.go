@@ -260,6 +260,7 @@ func (m *MessagesClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.
 		m.UserLogin.Log.Error().Msgf("message content was nil handling message from matrix")
 		return nil, fmt.Errorf("message content was nil handling message from matrix")
 	}
+	m.UserLogin.Log.Debug().Msgf("Sending message to portal %s with content length %d", msg.Portal.ID, len(msg.Content.Body))
 	if err := m.MacOSMessagesClient.SendMessage(msg.Portal.ID, msg.Content.Body); err != nil {
 		m.UserLogin.Log.Error().Msgf("error sending message to Messages: %v", err)
 		return nil, err
