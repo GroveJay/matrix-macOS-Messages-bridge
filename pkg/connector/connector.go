@@ -125,6 +125,7 @@ func (m *MessagesConnector) SyncMessageByGUID(ce *commands.Event) {
 	if err := mc.HandleSyncMessageByGUID(ce.Args[0]); err != nil {
 		ce.Reply(fmt.Sprintf("Error syncing message by GUID: %v", err))
 	}
+	ce.React("✅")
 }
 
 func (m *MessagesConnector) SyncLastDaysMessages(ce *commands.Event) {
@@ -150,4 +151,5 @@ func (m *MessagesConnector) SyncLastDaysMessages(ce *commands.Event) {
 	if err := mc.HandleSyncMessagesByDays(days); err != nil {
 		ce.Reply(fmt.Sprintf("Error syncing messages for past %d days: %v", days, err))
 	}
+	ce.React("✅")
 }
