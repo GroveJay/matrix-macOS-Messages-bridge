@@ -19,6 +19,10 @@ const (
 	SYNC_LAST_DAYS_MESSAGES_COMMAND = "sync-last-days-messages"
 	SYNC_LAST_DAYS_MESSAGES_ARGS    = "[Days]"
 	SYNC_LAST_DAYS_MESSAGES_TEXT    = "Sync messages from the last number of days (default 1)"
+
+	SYNC_USER_BY_ID_COMMAND = "sync-user-by-id"
+	SYNC_USER_BY_ID_ARGS    = "<ID>"
+	SYNC_USER_BY_ID_TEXT    = "Sync a user's information by their ID"
 )
 
 type MessagesConnector struct {
@@ -50,6 +54,18 @@ func (m *MessagesConnector) Init(b *bridgev2.Bridge) {
 			Section:     commands.HelpSectionChats,
 			Description: SYNC_LAST_DAYS_MESSAGES_TEXT,
 			Args:        SYNC_LAST_DAYS_MESSAGES_ARGS,
+		},
+		RequiresAdmin:           true,
+		RequiresLogin:           true,
+		RequiresLoginPermission: true,
+	})
+	m.Bridge.Commands.(*commands.Processor).AddHandler(&commands.FullHandler{
+		Func: m.SyncUserByID,
+		Name: SYNC_USER_BY_ID_COMMAND,
+		Help: commands.HelpMeta{
+			Section:     commands.HelpSectionChats,
+			Description: SYNC_USER_BY_ID_TEXT,
+			Args:        SYNC_USER_BY_ID_ARGS,
 		},
 		RequiresAdmin:           true,
 		RequiresLogin:           true,
@@ -150,6 +166,25 @@ func (m *MessagesConnector) SyncLastDaysMessages(ce *commands.Event) {
 	mc := login.Client.(*MessagesClient)
 	if err := mc.HandleSyncMessagesByDays(days); err != nil {
 		ce.Reply(fmt.Sprintf("Error syncing messages for past %d days: %v", days, err))
+	}
+	ce.React("✅")
+}
+
+func (m *MessagesConnector) SyncUserByID(ce *commands.Event) {
+	login := ce.User.GetDefaultLogin()
+	if login == nil {
+		ce.Reply("Login not found")
+		return
+	}
+
+	if len(ce.Args) != 1 {
+		ce.Reply(m.Usage)
+		return
+	}
+
+	mc := login.Client.(*MessagesClient)
+	if err := mc.HandleSyncUserByID(ce.Ctx, ce.Args[0]); err != nil {
+		ce.Reply(fmt.Sprintf("Error syncing user by guid: %v", err))
 	}
 	ce.React("✅")
 }

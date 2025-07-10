@@ -286,6 +286,16 @@ func (m *MessagesClient) HandleSyncMessagesByDays(days int) error {
 	return nil
 }
 
+func (m *MessagesClient) HandleSyncUserByID(ctx context.Context, guid string) error {
+	ghost, err := m.UserLogin.Bridge.GetGhostByID(ctx, networkid.UserID(guid))
+	if err != nil {
+		return err
+	}
+	ghost.NameSet = false
+	ghost.UpdateInfoIfNecessary(ctx, m.UserLogin, bridgev2.RemoteEventUnknown)
+	return nil
+}
+
 func (m *MessagesClient) watchMessagesDBFile(watcher *fsnotify.Watcher, maxMessagesTimestamp int64) error {
 	var latestEventSeenTime time.Time
 	var handleLock sync.Mutex
