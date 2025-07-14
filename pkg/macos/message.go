@@ -87,6 +87,7 @@ type Message struct {
 	NewGroupTitle   string
 	ReplyToGUID     string
 	ChatGUID        string
+	ChatHandlesIDs  string
 	OtherID         string
 	HandleID        string
 

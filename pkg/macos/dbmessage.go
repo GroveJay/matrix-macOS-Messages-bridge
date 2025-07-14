@@ -25,7 +25,7 @@ type DBMessage struct {
 	Text                 string
 	ChatGUID             string
 	ReplyToGUID          string
-	ThreadID             string
+	ChatHandlesIDs       string
 	NewGroupTitle        string
 	BalloonBundleID      string
 	ThreadOriginatorPart string

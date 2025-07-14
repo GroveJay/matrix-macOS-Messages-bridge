@@ -28,11 +28,12 @@ const (
 )
 
 type ReadReceipt struct {
-	ChatGUID   string
-	ReadUpTo   string
-	ReadAt     time.Time
-	IsFromMe   bool
-	SenderGUID string
+	ChatGUID       string
+	ChatHandlesIDs string
+	ReadUpTo       string
+	ReadAt         time.Time
+	IsFromMe       bool
+	SenderGUID     string
 }
 
 func ParseIdentifier(identifier string) Identifier {
@@ -65,6 +66,7 @@ type MacOSMessagesClient struct {
 	userHomeDir            string
 	groupMemberQuery       *sql.Stmt
 	chatQuery              *sql.Stmt
+	chatHandlesIDsQuery    *sql.Stmt
 	groupActionQuery       *sql.Stmt
 	maxMessagesTimeQuery   *sql.Stmt
 	newMessagesQuery       *sql.Stmt
@@ -136,8 +138,8 @@ func (c MacOSMessagesClient) GetChatDBWALPath() string {
 	return fmt.Sprintf("%s-wal", c.chatDBPath)
 }
 
-func (c MacOSMessagesClient) GetChatMemberMap(chatID networkid.PortalID, selfUserID networkid.UserID) (map[networkid.UserID]bridgev2.ChatMember, error) {
-	if members, err := c.getGroupMembers(ChatGUIDFromPortalID(chatID)); err != nil {
+func (c MacOSMessagesClient) GetChatMemberMap(chatGUID string, selfUserID networkid.UserID) (map[networkid.UserID]bridgev2.ChatMember, error) {
+	if members, err := c.getGroupMembers(chatGUID); err != nil {
 		return nil, err
 	} else {
 		membersMap := make(map[networkid.UserID]bridgev2.ChatMember)
@@ -167,12 +169,15 @@ func (c MacOSMessagesClient) GetChatMemberMap(chatID networkid.PortalID, selfUse
 	}
 }
 
-func (c *MacOSMessagesClient) GetChatDetails(chatID networkid.PortalID) (*string, *bridgev2.Avatar, error) {
-	chatGUID := ChatGUIDFromPortalID(chatID)
+func (c *MacOSMessagesClient) GetChatDetails(chatID networkid.PortalID) (*string, *string, *bridgev2.Avatar, error) {
+	chatGUID, err := c.GetChatGUIDFromPortalID(chatID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	chatRow := c.chatQuery.QueryRow(chatGUID)
 	var name string
 	if err := chatRow.Scan(&name); err != nil {
-		return nil, nil, err
+		return &chatGUID, nil, nil, err
 	}
 
 	avatarRow := c.groupActionQuery.QueryRow(ItemTypeAvatar, GroupActionSetAvatar, chatGUID)
@@ -182,39 +187,22 @@ func (c *MacOSMessagesClient) GetChatDetails(chatID networkid.PortalID) (*string
 
 	if err := avatarRow.Scan(path, mimeType, fileName); err != nil {
 		if err != sql.ErrNoRows {
-			return &name, nil, err
+			return &chatGUID, &name, nil, err
 		}
-		return &name, nil, nil
+		return &chatGUID, &name, nil, nil
 	}
 	path = ReplaceHomeDirectory(path, c.userHomeDir)
 	avatar := &bridgev2.Avatar{
 		ID: networkid.AvatarID(fmt.Sprintf("%s-%s", chatGUID, fileName)),
 		Get: func(ctx context.Context) ([]byte, error) {
-			return os.ReadFile(path)
+			file, err := os.ReadFile(path)
+			if err != nil {
+				return nil, err
+			}
+			return AddMessagesIconToAvatarImage(file)
 		},
 	}
-	return &name, avatar, nil
-}
-
-func (c *MacOSMessagesClient) GetAllChatIDsNames() (map[string]string, error) {
-	stdout, stderr, err := RunOsascript(GetChatIDsNames)
-	if err != nil || len(stdout) == 0 || len(stderr) != 0 {
-		return nil, fmt.Errorf("%w:\nstdout:\n%s\nstderr:\n%s", err, stdout, stderr)
-	}
-	chatMap := make(map[string]string)
-	for _, line := range strings.Split(stdout, "\n") {
-		if len(line) == 0 {
-			continue
-		}
-		line_parts := strings.Split(line, "|")
-		id := line_parts[0]
-		if len(line_parts) > 1 {
-			chatMap[id] = line_parts[1]
-		} else {
-			chatMap[id] = ""
-		}
-	}
-	return chatMap, nil
+	return &chatGUID, &name, avatar, nil
 }
 
 func (c *MacOSMessagesClient) GetMaxMessagesTime() (*int64, error) {
@@ -278,6 +266,35 @@ func (c *MacOSMessagesClient) GetMessageByGUID(guid string) (*DBMessage, error) 
 	return results[0], nil
 }
 
+func ReadRecieptScan(res *sql.Rows) (*ReadReceipt, error) {
+	var readReceipt ReadReceipt
+	var chatGUID, chatHandlesIDs string
+	var messageIsFromMe bool
+	var readAtAppleEpoch int64
+	err := res.Scan(&readReceipt.ChatGUID, &chatHandlesIDs, &readReceipt.ReadUpTo, &messageIsFromMe, &readAtAppleEpoch)
+	if err == nil {
+		if messageIsFromMe {
+			// For messages from me, the receipt is not from me, and vice versa.
+			readReceipt.IsFromMe = false
+			if ParseIdentifier(readReceipt.ChatGUID).IsGroup {
+				// We don't get read receipts from other users in groups,
+				// so skip our own messages.
+				return nil, nil
+			} else {
+				// The read receipt is on our own message and it's a private chat,
+				// which means the read receipt is from the private chat recipient.
+				readReceipt.SenderGUID = chatGUID
+			}
+		} else {
+			readReceipt.IsFromMe = true
+		}
+		readReceipt.ReadAt = time.Unix(AppleEpochUnix, readAtAppleEpoch)
+		readReceipt.ChatHandlesIDs = SortChatHandlesIDs(chatHandlesIDs)
+	}
+
+	return &readReceipt, err
+}
+
 func (c *MacOSMessagesClient) GetReadReceiptsSince(minDate time.Time) ([]*ReadReceipt, time.Time, error) {
 	origMinDate := minDate.UnixNano() - AppleEpochUnixNano
 	res, err := c.newReceiptsQuery.Query(origMinDate)
@@ -286,39 +303,13 @@ func (c *MacOSMessagesClient) GetReadReceiptsSince(minDate time.Time) ([]*ReadRe
 	}
 	var receipts []*ReadReceipt
 	for res.Next() {
-		var chatGUID, messageGUID string
-		var messageIsFromMe bool
-		var readAtAppleEpoch int64
-		err = res.Scan(&chatGUID, &messageGUID, &messageIsFromMe, &readAtAppleEpoch)
-		if err != nil {
+		if readReceipt, err := ReadRecieptScan(res); err != nil {
 			return receipts, minDate, fmt.Errorf("error scanning row: %w", err)
-		}
-		readAt := time.Unix(AppleEpochUnix, readAtAppleEpoch)
-		if readAtAppleEpoch > origMinDate {
-			minDate = readAt
-		}
-
-		receipt := &ReadReceipt{
-			ChatGUID: chatGUID,
-			ReadUpTo: messageGUID,
-			ReadAt:   readAt,
-		}
-		if messageIsFromMe {
-			// For messages from me, the receipt is not from me, and vice versa.
-			receipt.IsFromMe = false
-			if ParseIdentifier(chatGUID).IsGroup {
-				// We don't get read receipts from other users in groups,
-				// so skip our own messages.
-				continue
-			} else {
-				// The read receipt is on our own message and it's a private chat,
-				// which means the read receipt is from the private chat recipient.
-				receipt.SenderGUID = chatGUID
-			}
+		} else if readReceipt == nil {
+			continue
 		} else {
-			receipt.IsFromMe = true
+			receipts = append(receipts, readReceipt)
 		}
-		receipts = append(receipts, receipt)
 	}
 	return receipts, minDate, nil
 }
@@ -380,7 +371,7 @@ func OS16MessagesScan(res *sql.Rows) (*DBMessage, error) {
 	var tapbackTargetGUID sql.NullString
 	var tapbackEmoji sql.NullString
 	var chatGUID sql.NullString
-	var threadID sql.NullString
+	var chatHandlesIDs sql.NullString
 
 	// TODO add expressive_send_style_id here
 	err := res.Scan(
@@ -394,7 +385,7 @@ func OS16MessagesScan(res *sql.Rows) (*DBMessage, error) {
 		&dummyInt, &dummyInt, &threadOriginatorGUID, &threadOriginatorPart, &dummyText, &dummyInt, &dummyInt, &dummyText, &message.DateRetracted, &message.DateEdited,
 		&dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyText, &dummyInt, &dummyText, &tapbackEmoji, &dummyInt,
 		&dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt,
-		&chatGUID, &threadID, &handleID, &otherID,
+		&chatGUID, &chatHandlesIDs, &handleID, &otherID,
 	)
 	if err == nil {
 		messageStringFields := map[*string]sql.NullString{
@@ -406,7 +397,7 @@ func OS16MessagesScan(res *sql.Rows) (*DBMessage, error) {
 			&message.HandleID:             handleID,
 			&message.OtherID:              otherID,
 			&message.ChatGUID:             chatGUID,
-			&message.ThreadID:             threadID,
+			&message.ChatHandlesIDs:       chatHandlesIDs,
 			&message.TapbackTargetGUID:    tapbackTargetGUID,
 			&message.TapbackEmoji:         tapbackEmoji,
 			&message.ThreadOriginatorPart: threadOriginatorPart,
@@ -435,7 +426,7 @@ func OS14MessagesScan(res *sql.Rows) (*DBMessage, error) {
 	var handleID sql.NullString
 	var otherID sql.NullString
 	var chatGUID sql.NullString
-	var threadID sql.NullString
+	var chatHandlesIDs sql.NullString
 
 	err := res.Scan(
 		&message.RowID, &message.GUID, &messageText, &dummyInt, &dummyText, &dummyInt, &messageSubject, &dummyText, &message.AttributedBody, &dummyInt,
@@ -447,7 +438,7 @@ func OS14MessagesScan(res *sql.Rows) (*DBMessage, error) {
 		&dummyInt, &dummyText, &dummyText, &dummyText, &dummyInt, &dummyText, &dummyText, &dummyInt, &dummyText, &dummyInt,
 		&dummyInt, &dummyInt, &threadOriginatorGUID, &threadOriginatorPart, &dummyText, &dummyInt, &dummyInt, &dummyText, &message.DateRetracted, &message.DateEdited,
 		&dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyInt, &dummyText, &dummyInt, &dummyText,
-		&chatGUID, &threadID, &handleID, &otherID,
+		&chatGUID, &chatHandlesIDs, &handleID, &otherID,
 	)
 	if err == nil {
 		messageStringFields := map[*string]sql.NullString{
@@ -459,7 +450,7 @@ func OS14MessagesScan(res *sql.Rows) (*DBMessage, error) {
 			&message.HandleID:             handleID,
 			&message.OtherID:              otherID,
 			&message.ChatGUID:             chatGUID,
-			&message.ThreadID:             threadID,
+			&message.ChatHandlesIDs:       chatHandlesIDs,
 			&message.TapbackTargetGUID:    tapbackTargetGUID,
 			&message.ThreadOriginatorPart: threadOriginatorPart,
 		}
@@ -647,12 +638,12 @@ func (c *MacOSMessagesClient) parseMessages(res *sql.Rows) ([]*DBMessage, error)
 }
 
 func (c *MacOSMessagesClient) SendMessage(portalID networkid.PortalID, body string) error {
-	chatGUID := ChatGUIDFromPortalID(portalID)
-	if chatGUID == "" {
-		return fmt.Errorf("empty chatGUID from incoming message Portal ID: %s", string(portalID))
-	}
 	if body == "" {
 		return fmt.Errorf("message content body was empty")
+	}
+	chatGUID, err := c.GetChatGUIDFromPortalID(portalID)
+	if err != nil {
+		return fmt.Errorf("error getting chat GUID from Portal ID %s: %v", portalID, err)
 	}
 	_, stderr, err := RunOsascript(SendMessageToChatGUID, chatGUID, body)
 	if err != nil {
@@ -662,4 +653,16 @@ func (c *MacOSMessagesClient) SendMessage(portalID networkid.PortalID, body stri
 		return fmt.Errorf("stderr was not empty sending message to chatGUID %s of length %d: %s", chatGUID, len(body), stderr)
 	}
 	return nil
+}
+
+func (c *MacOSMessagesClient) GetChatGUIDFromPortalID(portalID networkid.PortalID) (string, error) {
+	portalChatHandlesIDsString := ChatHandlesIDsFromPortalID(portalID)
+	if portalChatHandlesIDsString == "" {
+		return "", fmt.Errorf("empty chat handles ids from incoming message Portal ID: %s", portalID)
+	}
+	stdout, stderr, err := RunOsascript(GetChatGUIDFromHandlesIDs, portalChatHandlesIDsString)
+	if err != nil || len(stdout) == 0 || len(stderr) != 0 {
+		return "", fmt.Errorf("error getting chat GUID from chat handles ids %s: %v\nstdout:\n%s\nstderr:\n%s", portalChatHandlesIDsString, err, stdout, stderr)
+	}
+	return strings.TrimSuffix(stdout, "\n"), nil
 }

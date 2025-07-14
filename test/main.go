@@ -60,64 +60,6 @@ func checkError(err error) bool {
 	return false
 }
 
-func test_get_chat_details() {
-	logger, err := prepareLog([]byte(logConfig))
-	checkError(err)
-	messagesClient, err := macos.GetMessagesClient("foobar", logger)
-	checkError(err)
-	contactsClient, err := macos.GetContactsClient("foobar")
-	checkError(err)
-	chatMap, err := messagesClient.GetAllChatIDsNames()
-	checkError(err)
-	contactsMap, err := contactsClient.GetContactsMap()
-	checkError(err)
-	context := context.TODO()
-	for ID := range chatMap {
-		chatID := macos.MakeMessagesPortalID("foobar", ID)
-		println(ID)
-		chatName, avatar, err := messagesClient.GetChatDetails(chatID)
-		checkError(err)
-		println("\tName: " + *chatName)
-		if avatar != nil {
-			println("\tAvatar: " + avatar.ID)
-		} else {
-			println("\tAvatar: nil")
-		}
-		memberMap, err := messagesClient.GetChatMemberMap(chatID, "foobar")
-		checkError(err)
-
-		macos.SupplementMemberMapWithContactsMap(&memberMap, contactsMap, *contactsClient)
-		println("\tMembers:")
-		for k, v := range memberMap {
-			memberStrings := make([]string, 1)
-			memberStrings = append(memberStrings, string(k))
-			nickName := "Nick: "
-			if v.Nickname != nil {
-				nickName = nickName + *v.Nickname
-			}
-			memberStrings = append(memberStrings, nickName)
-			name := "Name: "
-			if v.UserInfo != nil && v.UserInfo.Name != nil {
-				name = name + *v.UserInfo.Name
-			}
-			memberStrings = append(memberStrings, name)
-			avatarID := "AvatarID: "
-			if v.UserInfo != nil && v.UserInfo.Avatar != nil {
-				avatarID = avatarID + string(v.UserInfo.Avatar.ID)
-				if v.UserInfo.Avatar.Get != nil {
-					if avatar, err := v.UserInfo.Avatar.Get(context); err != nil {
-						memberStrings = append(memberStrings, "error getting avatar")
-					} else {
-						memberStrings = append(memberStrings, fmt.Sprintf("avatar bytes: %d", len(avatar)))
-					}
-				}
-			}
-			memberStrings = append(memberStrings, avatarID)
-			println("\t\t" + strings.Join(memberStrings, " "))
-		}
-	}
-}
-
 func test_get_chat_info() {
 	logger, err := prepareLog([]byte(logConfig))
 	checkError(err)
@@ -137,7 +79,7 @@ func test_get_chat_info() {
 	mc.GetChatInfo(context.TODO(), &bridgev2.Portal{
 		Portal: &database.Portal{
 			PortalKey: networkid.PortalKey{
-				ID: "MessagesID|+19737966824|SMS;-;+12103295244",
+				ID: "MessagesID|+19737966824|+15183205992;+18609779884;+19788950168",
 			},
 		},
 	})
@@ -148,7 +90,7 @@ func test_parse_all_messages() {
 	checkError(err)
 	messagesClient, err := macos.GetMessagesClient("foobar", logger)
 	checkError(err)
-	messages, err := messagesClient.GetMessagesNewerThan(772941069808000128) // 0)
+	messages, err := messagesClient.GetMessagesNewerThan(773912942745048064) // 0)
 	checkError(err)
 	testHandleMessages(messages, logger)
 }
@@ -188,6 +130,7 @@ func testHandleMessages(messages []*macos.DBMessage, logger *zerolog.Logger) {
 		"IT",
 		"GAT",
 		"Chat GUID",
+		"Chat Handles IDs",
 		"H.ID",
 		"O.ID",
 		"len(atch)",
@@ -206,6 +149,7 @@ func testHandleMessages(messages []*macos.DBMessage, logger *zerolog.Logger) {
 			fmt.Sprintf("%d", message.ItemType),
 			fmt.Sprintf("%d", message.GroupActionType),
 			message.ChatGUID,
+			message.ChatHandlesIDs,
 			message.HandleID,
 			message.OtherID,
 			fmt.Sprintf("%d", len(message.Attachments)),
@@ -226,15 +170,60 @@ func testHandleMessages(messages []*macos.DBMessage, logger *zerolog.Logger) {
 		},
 		DryRun: true,
 	}
-
+	fmt.Fprintln(tw, strings.Join([]string{
+		"RowID",
+		"Date",
+		"GUID",
+		"Me",
+		"IT",
+		"GAT",
+		"Chat GUID",
+		"Chat Handles IDs",
+		"H.ID",
+		"O.ID",
+		"len(atch)",
+		"len(editparts)",
+		"BB ID",
+		"TB Type",
+		"TB Emoji",
+		"TB Target",
+	}, "\t"))
 	for _, message := range messages {
 		message, err := macos.ConvertDBMessage(*message, string("CURRENT.USER"))
 		if err != nil {
 			println(fmt.Sprintf("ERROR converting message: %v", err))
 			continue
 		}
+		tbType := macos.TapbackType(0)
+		tbEmoji := ""
+		tbTargetGUID := ""
+		if message.Tapback != nil {
+			tbType = message.Tapback.Type
+			tbEmoji = message.Tapback.Emoji
+			tbTargetGUID = message.Tapback.TargetGUID
+		}
+		fmt.Fprintln(tw, strings.Join([]string{
+			fmt.Sprintf("%d", message.DBRowID),
+			fmt.Sprintf("%d", message.DBDate),
+			message.GUID,
+			fmt.Sprintf("%t", message.IsFromMe),
+			fmt.Sprintf("%d", message.ItemType),
+			fmt.Sprintf("%d", message.GroupActionType),
+			message.ChatGUID,
+			message.ChatHandlesIDs,
+			message.HandleID,
+			message.OtherID,
+			fmt.Sprintf("%d", len(message.Attachments)),
+			fmt.Sprintf("%d", len(message.EditedMessageParts)),
+			message.BalloonBundleID,
+			fmt.Sprintf("%d", tbType),
+			tbEmoji,
+			tbTargetGUID,
+		}, "\t"))
 		mc.HandleiMessage(message)
 	}
+	tw.Flush()
+
 }
 
 func test_decode_stream_typed(file string) {

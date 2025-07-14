@@ -173,13 +173,13 @@ func (m *MessagesClient) IsThisUser(ctx context.Context, userID networkid.UserID
 
 func (m *MessagesClient) GetChatInfo(ctx context.Context, portal *bridgev2.Portal) (*bridgev2.ChatInfo, error) {
 	m.UserLogin.Log.Debug().Msgf("[GetChatInfo] portalID: %s", portal.ID)
-	chatName, avatar, err := m.MacOSMessagesClient.GetChatDetails(portal.ID)
+	chatGUID, chatName, avatar, err := m.MacOSMessagesClient.GetChatDetails(portal.ID)
 	if err != nil {
 		m.UserLogin.Log.Error().Msgf("Failed to get chat details for group %s: %s", portal.ID, err)
 		return nil, err
 	}
-	m.UserLogin.Log.Debug().Msgf("[GetChatInfo] chatName: %s", *chatName)
-	memberMap, err := m.MacOSMessagesClient.GetChatMemberMap(portal.ID, networkid.UserID(m.UserLogin.ID))
+	m.UserLogin.Log.Debug().Msgf("[GetChatInfo] chatName: %s chatGUID: %s", *chatName, *chatGUID)
+	memberMap, err := m.MacOSMessagesClient.GetChatMemberMap(*chatGUID, networkid.UserID(m.UserLogin.ID))
 	if err != nil {
 		m.UserLogin.Log.Error().Msgf("failed to get chat members for group %s: %s", portal.ID, err)
 		return nil, err

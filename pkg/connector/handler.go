@@ -21,7 +21,14 @@ import (
 
 func (m *MessagesClient) PortalKeyFromMessage(message *macos.Message) networkid.PortalKey {
 	return networkid.PortalKey{
-		ID:       macos.MakeMessagesPortalID(m.UserLogin.ID, message.ChatGUID),
+		ID:       macos.MakeMessagesPortalID(m.UserLogin.ID, message.ChatHandlesIDs),
+		Receiver: m.UserLogin.ID,
+	}
+}
+
+func (m *MessagesClient) PortalKeyFromReadReceipt(readReciept *macos.ReadReceipt) networkid.PortalKey {
+	return networkid.PortalKey{
+		ID:       macos.MakeMessagesPortalID(m.UserLogin.ID, readReciept.ChatHandlesIDs),
 		Receiver: m.UserLogin.ID,
 	}
 }
@@ -376,7 +383,11 @@ func (m *MessagesClient) HandleAvatarOrMemberLeave(message *macos.Message) error
 					Avatar: &bridgev2.Avatar{
 						ID: networkid.AvatarID(fmt.Sprintf("%s-avatar", message.GUID)),
 						Get: func(ctx context.Context) (result []byte, err error) {
-							return os.ReadFile(firstAttachmentPathOnDisk)
+							file, err := os.ReadFile(firstAttachmentPathOnDisk)
+							if err != nil {
+								return nil, err
+							}
+							return macos.AddMessagesIconToAvatarImage(file)
 						},
 					},
 				},
@@ -426,14 +437,12 @@ func (m *MessagesClient) HandleiMessage(message *macos.Message) error {
 }
 
 func (m *MessagesClient) HandleiMessageReadReceipt(readReciept *macos.ReadReceipt) {
+	portalKey := m.PortalKeyFromReadReceipt(readReciept)
 	m.UserLogin.Bridge.QueueRemoteEvent(m.UserLogin, &simplevent.Receipt{
 		EventMeta: simplevent.EventMeta{
 			Type:      bridgev2.RemoteEventReadReceipt,
 			Timestamp: readReciept.ReadAt,
-			PortalKey: networkid.PortalKey{
-				ID:       macos.MakeMessagesPortalID(m.UserLogin.ID, readReciept.ChatGUID),
-				Receiver: m.UserLogin.ID,
-			},
+			PortalKey: portalKey,
 			Sender: bridgev2.EventSender{
 				IsFromMe:    readReciept.IsFromMe,
 				SenderLogin: networkid.UserLoginID(readReciept.SenderGUID),

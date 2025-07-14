@@ -22,9 +22,24 @@ const (
 	ItemTypeError     ItemType = -100
 )
 
+const CHAT_HANDLES_IDS_SEPARATOR = ";"
+const CHAT_HANDLES_IDS_COLUMN_NAME = "chat_handles_ids"
+
+const chatHandleJoin = `
+	JOIN chat_handle_join ON chat_handle_join.chat_id = inner_chat.ROWID
+	JOIN handle ON chat_handle_join.handle_id = handle.ROWID
+`
+
+const chatHandlesIDsSubquery = `
+(
+	SELECT group_concat(handle.id, "` + CHAT_HANDLES_IDS_SEPARATOR + `")
+	FROM chat as inner_chat` + chatHandleJoin +
+	`	WHERE inner_chat.guid=chat.guid
+) ` + CHAT_HANDLES_IDS_COLUMN_NAME
+
 const baseMessagesQuery = `
 SELECT message.*,
-chat.guid, chat.group_id,
+chat.guid, ` + chatHandlesIDsSubquery + `,
 COALESCE(handle_on_handle_id.id, ''), COALESCE(handle_on_other_handle.id, '')
 FROM message
 LEFT JOIN chat_message_join    ON chat_message_join.message_id = message.ROWID
@@ -34,11 +49,7 @@ LEFT JOIN handle handle_on_other_handle ON message.other_handle = handle_on_othe
 `
 
 const GroupMemberQuery = `
-SELECT handle.id, handle.country FROM chat
-JOIN chat_handle_join ON chat_handle_join.chat_id = chat.ROWID
-JOIN handle ON chat_handle_join.handle_id = handle.ROWID
-WHERE chat.guid=$1
-`
+SELECT handle.id, handle.country FROM chat as inner_chat` + chatHandleJoin + `WHERE inner_chat.guid=$1`
 
 const ChatQuery = `
 SELECT COALESCE(display_name, '')
@@ -82,7 +93,8 @@ ORDER BY message.date ASC
 `
 
 const NewRecieptsQuery = `
-SELECT chat.guid, message.guid, message.is_from_me, message.date_read
+SELECT chat.guid, ` + chatHandlesIDsSubquery + `,
+message.guid, message.is_from_me, message.date_read
 FROM message
 JOIN chat_message_join ON chat_message_join.message_id = message.ROWID
 JOIN chat              ON chat_message_join.chat_id = chat.ROWID
@@ -120,6 +132,38 @@ on run {chatGUID, message}
 end run
 `
 
+const GetChatGUIDFromHandlesIDs = `
+on run {chat_handles_ids}
+	tell application "Messages"
+		set cs to get every chat
+		set AppleScript's text item delimiters to "` + CHAT_HANDLES_IDS_SEPARATOR + `"
+		set handles_ids to every text item of chat_handles_ids
+		set handles_count to count of handles_ids
+		set chat_guid to ""
+		repeat with c in cs
+			set ps to get participants of c
+			set participants_count to count of ps
+
+			try
+				if participants_count is not equal to handles_count then
+					error 0
+				end if
+				repeat with p in ps
+					set p_id to handle of p
+					if handles_ids does not contain p_id then
+						error 0
+					end if
+				end repeat
+				set chat_guid to id of c
+				exit repeat
+			end try
+		end repeat
+		copy chat_guid to stdout
+	end tell
+end run
+
+`
+
 const CheckMessagesRunning = `
 set messages_app_id to get id of application "Messages"
 set messages_app to application id messages_app_id
@@ -145,39 +189,6 @@ on run {contactID}
 		end if
 	end tell
 end run
-`
-
-const GetChatIDsNames = `
-tell application "Messages"
-	set cs to get every chat
-	set o to {}
-	repeat with c in cs
-		set i to get id of c
-		set n to get name of c
-		if n is missing value
-			set n to ""
-		end if
-		set end of o to (i & "|" & n)
-	end repeat
-	set AppleScript's text item delimiters to "\n"
-	copy o as string to stdout
-end tell
-`
-
-const GetOwnContactIDs = `
-tell application "Contacts"
-	set o to {}
-	set c to my card
-	repeat with p in phones of c
-		set end of o to value of p
-	end repeat
-	repeat with e in emails of c
-		set end of o to value of e
-	end repeat
-	set AppleScript's text item delimiters to "
-"
-	copy o as string to stdout
-end tell
 `
 
 const GetOwnContactFirstPhone = `

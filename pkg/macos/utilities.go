@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -47,11 +48,11 @@ func byteToDigit(input byte) uint8 {
 	return input - 48
 }
 
-func MakeMessagesPortalID(userLoginID networkid.UserLoginID, chatGUID string) networkid.PortalID {
-	return networkid.PortalID(strings.Join([]string{"MessagesID", string(userLoginID), chatGUID}, PORTAL_ID_SEPARATOR))
+func MakeMessagesPortalID(userLoginID networkid.UserLoginID, chatHandlesIDs string) networkid.PortalID {
+	return networkid.PortalID(strings.Join([]string{"MessagesID", string(userLoginID), chatHandlesIDs}, PORTAL_ID_SEPARATOR))
 }
 
-func ChatGUIDFromPortalID(portalID networkid.PortalID) string {
+func ChatHandlesIDsFromPortalID(portalID networkid.PortalID) string {
 	parts := strings.Split(string(portalID), PORTAL_ID_SEPARATOR)
 	if len(parts) != 3 {
 		return ""
@@ -529,6 +530,12 @@ func URLPreviewFromFlatPlistData(flatPlistData map[string]any) (result string, e
 	return fmt.Sprintf(TEXT_URL_PREVIEW, *urlString, *title, hostnameOrUrl), nil
 }
 
+func SortChatHandlesIDs(unsortedChatHandlesIDs string) string {
+	dbMessageChatHandleIDs := strings.Split(unsortedChatHandlesIDs, CHAT_HANDLES_IDS_SEPARATOR)
+	slices.Sort(dbMessageChatHandleIDs)
+	return strings.Join(dbMessageChatHandleIDs, CHAT_HANDLES_IDS_SEPARATOR)
+}
+
 func ConvertDBMessage(m DBMessage, defaultHandleID string) (*Message, error) {
 	message := Message{}
 	message.DBRowID = m.RowID
@@ -548,6 +555,7 @@ func ConvertDBMessage(m DBMessage, defaultHandleID string) (*Message, error) {
 	message.OtherID = m.OtherID
 	message.HandleID = m.HandleID
 	message.Attachments = m.Attachments
+	message.ChatHandlesIDs = SortChatHandlesIDs(m.ChatHandlesIDs)
 
 	if message.IsFromMe {
 		message.HandleID = defaultHandleID
