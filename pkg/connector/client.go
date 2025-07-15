@@ -265,7 +265,9 @@ func (m *MessagesClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.
 		m.UserLogin.Log.Error().Msgf("error sending message to Messages: %v", err)
 		return nil, err
 	}
-	return &bridgev2.MatrixMessageResponse{}, nil
+	return &bridgev2.MatrixMessageResponse{
+		DB: nil,
+	}, nil
 }
 
 func (m *MessagesClient) HandleSyncMessageByGUID(guid string) error {
