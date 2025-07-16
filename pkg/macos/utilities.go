@@ -490,8 +490,8 @@ func URLPreviewFromFlatPlistData(flatPlistData map[string]any) (result string, e
 	}
 
 	var urlString *string
-	if urlString, err = GetValueAsTypeFromMapKey[string](flatPlistData, "/richLinkMetadata/URL/NS.relative"); err != nil {
-		if urlString, err = GetValueAsTypeFromMapKey[string](flatPlistData, "/richLinkMetadata/originalURL/NS.relative"); err != nil {
+	if urlString, err = GetValueAsTypeFromMapKey[string](flatPlistData, "/richLinkMetadata/URL"); err != nil {
+		if urlString, err = GetValueAsTypeFromMapKey[string](flatPlistData, "/richLinkMetadata/originalURL"); err != nil {
 			return result, fmt.Errorf("finding URL in preview data: %w", err)
 		}
 	}

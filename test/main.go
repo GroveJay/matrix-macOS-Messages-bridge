@@ -90,7 +90,7 @@ func test_parse_all_messages() {
 	checkError(err)
 	messagesClient, err := macos.GetMessagesClient("foobar", logger)
 	checkError(err)
-	messages, err := messagesClient.GetMessagesNewerThan(773912942745048064) // 0)
+	messages, err := messagesClient.GetMessagesNewerThan(774317094296239616) // 0)
 	checkError(err)
 	testHandleMessages(messages, logger)
 }
@@ -254,7 +254,7 @@ func main() {
 		}
 	} else {
 		// test_get_chat_details()
-		// test_parse_all_messages()
-		test_get_chat_info()
+		test_parse_all_messages()
+		// test_get_chat_info()
 	}
 }
