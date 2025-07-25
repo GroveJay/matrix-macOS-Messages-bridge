@@ -308,6 +308,9 @@ func (c *MacOSMessagesClient) GetReadReceiptsSince(minDate time.Time) ([]*ReadRe
 		} else if readReceipt == nil {
 			continue
 		} else {
+			if readReceipt.ReadAt.After(minDate) {
+				minDate = readReceipt.ReadAt
+			}
 			receipts = append(receipts, readReceipt)
 		}
 	}

@@ -11,6 +11,7 @@ import (
 	"github.com/GroveJay/matrix-macOS-Messages-bridge/pkg/macos"
 	"github.com/fsnotify/fsnotify"
 	"maunium.net/go/mautrix/bridgev2"
+	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/status"
 	"maunium.net/go/mautrix/event"
@@ -266,7 +267,18 @@ func (m *MessagesClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.
 		return nil, err
 	}
 	return &bridgev2.MatrixMessageResponse{
-		DB: nil,
+		DB: &database.Message{},
+		PostSave: func(ctx context.Context, dbm *database.Message) {
+			go m.UserLogin.Bridge.DisappearLoop.Add(ctx, &database.DisappearingMessage{
+				RoomID:  msg.Portal.MXID,
+				EventID: dbm.MXID,
+				DisappearingSetting: database.DisappearingSetting{
+					Type:        database.DisappearingTypeAfterSend,
+					Timer:       time.Second,
+					DisappearAt: dbm.Timestamp.Add(time.Second),
+				},
+			})
+		},
 	}, nil
 }
 

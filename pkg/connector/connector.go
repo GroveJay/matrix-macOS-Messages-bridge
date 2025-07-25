@@ -79,7 +79,9 @@ func (m *MessagesConnector) Start(context.Context) error {
 }
 
 func (m *MessagesConnector) GetCapabilities() *bridgev2.NetworkGeneralCapabilities {
-	return &bridgev2.NetworkGeneralCapabilities{}
+	return &bridgev2.NetworkGeneralCapabilities{
+		DisappearingMessages: true,
+	}
 }
 
 func (m *MessagesConnector) GetBridgeInfoVersion() (info int, capabilities int) {
