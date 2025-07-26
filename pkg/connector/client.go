@@ -35,6 +35,7 @@ func (m *MessagesClient) Connect(ctx context.Context) {
 	meta := m.UserLogin.Metadata.(*UserLoginMetadata)
 	userID := meta.UserID
 	m.UserLogin.Log.Info().Msgf("Starting login for userID %s", userID)
+	m.SentMessages = map[networkid.PortalID]map[string]bool{}
 	if m.MacOSMessagesClient, err = macos.GetMessagesClient(userID, &m.UserLogin.Log); err != nil {
 		m.UserLogin.BridgeState.Send(status.BridgeState{
 			StateEvent: status.StateBadCredentials,
