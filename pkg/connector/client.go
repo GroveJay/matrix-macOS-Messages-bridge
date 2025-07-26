@@ -11,7 +11,6 @@ import (
 	"github.com/GroveJay/matrix-macOS-Messages-bridge/pkg/macos"
 	"github.com/fsnotify/fsnotify"
 	"maunium.net/go/mautrix/bridgev2"
-	"maunium.net/go/mautrix/bridgev2/database"
 	"maunium.net/go/mautrix/bridgev2/networkid"
 	"maunium.net/go/mautrix/bridgev2/status"
 	"maunium.net/go/mautrix/event"
@@ -26,6 +25,7 @@ type MessagesClient struct {
 	ReadReceiptsChannel          chan *macos.ReadReceipt
 	HandleMessagesStopChannel    chan struct{}
 	DryRun                       bool
+	SentMessages                 map[networkid.PortalID]map[string]bool
 }
 
 var _ bridgev2.NetworkAPI = (*MessagesClient)(nil)
@@ -266,19 +266,13 @@ func (m *MessagesClient) HandleMatrixMessage(ctx context.Context, msg *bridgev2.
 		m.UserLogin.Log.Error().Msgf("error sending message to Messages: %v", err)
 		return nil, err
 	}
+	if _, ok := m.SentMessages[msg.Portal.ID]; !ok {
+		m.SentMessages[msg.Portal.ID] = map[string]bool{}
+	}
+	m.SentMessages[msg.Portal.ID][msg.Content.Body] = true
+
 	return &bridgev2.MatrixMessageResponse{
-		DB: &database.Message{},
-		PostSave: func(ctx context.Context, dbm *database.Message) {
-			go m.UserLogin.Bridge.DisappearLoop.Add(ctx, &database.DisappearingMessage{
-				RoomID:  msg.Portal.MXID,
-				EventID: dbm.MXID,
-				DisappearingSetting: database.DisappearingSetting{
-					Type:        database.DisappearingTypeAfterSend,
-					Timer:       time.Second,
-					DisappearAt: dbm.Timestamp.Add(time.Second),
-				},
-			})
-		},
+		DB: nil,
 	}, nil
 }
 
@@ -383,6 +377,20 @@ func (m *MessagesClient) watchMessagesDBFile(watcher *fsnotify.Watcher, maxMessa
 						if convertedMessage.DBDate > maxMessagesTimestamp {
 							m.UserLogin.Log.Debug().Msgf("[%s] Updating max timestamp to %d", convertedMessage.GUID, convertedMessage.DBDate)
 							maxMessagesTimestamp = convertedMessage.DBDate
+						}
+
+						if convertedMessage.IsFromMe {
+							portalKeyID := m.PortalKeyFromMessage(convertedMessage).ID
+							if sentUnfilteredMessages, ok := m.SentMessages[portalKeyID]; ok {
+								if sentUnfilteredMessages[convertedMessage.AttributedString.Value] {
+									m.UserLogin.Log.Debug().Msgf("[%s] Message from self was likely previously sent via Matrix, skipping", convertedMessage.GUID)
+									delete(sentUnfilteredMessages, convertedMessage.AttributedString.Value)
+									if len(sentUnfilteredMessages) == 0 {
+										delete(m.SentMessages, portalKeyID)
+									}
+									continue
+								}
+							}
 						}
 
 						m.UserLogin.Log.Debug().Msgf("sending message to handler channel")
