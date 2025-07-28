@@ -205,6 +205,13 @@ func (m *Message) ConvertAttributedStringToFormattedHTMLParts(ctx context.Contex
 		return parts, nil
 	}
 
+	if m.Subject != "" {
+		currentMessagePart.Content.Body += m.Subject
+		currentMessagePart.Content.Format = event.FormatHTML
+		currentMessagePart.Content.MsgType = event.MsgText
+		currentMessagePart.Content.FormattedBody += fmt.Sprintf("<strong>%s</strong><br/>", event.TextToHTML(m.Subject))
+	}
+
 	for _, rangedAttribute := range a.RangedAttributes {
 		attributes := rangedAttribute.AttributeMap
 
@@ -349,7 +356,7 @@ func (m *Message) ConvertAttributedStringToFormattedHTMLParts(ctx context.Contex
 			}
 		}
 
-		currentMessagePart.Content.FormattedBody += formattedSubstring
+		currentMessagePart.Content.FormattedBody += strings.ReplaceAll(formattedSubstring, "\n", "<br/>")
 
 		/* TODO:
 		MoneyAttributeName
