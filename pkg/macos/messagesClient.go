@@ -323,7 +323,8 @@ func openChatDB() (*sql.DB, string, error) {
 		return nil, "", fmt.Errorf("failed to get home directory: %w", err)
 	}
 	path = filepath.Join(path, "Library", "Messages", "chat.db")
-	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro", path))
+	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro&_query_only=true", path))
+	db.SetMaxOpenConns(1)
 	return db, path, err
 }
 

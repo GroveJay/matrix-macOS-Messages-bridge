@@ -32,13 +32,14 @@ func createAndPrepareContactsDB(path string) (contactsDB *ContactsDB, err error)
 	contactsDB = &ContactsDB{
 		dbPath: path,
 	}
-	if contactsDB.db, err = sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro", path)); err != nil {
+	if contactsDB.db, err = sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro&_query_only=true", path)); err != nil {
 		return nil, err
 	} else {
 		if contactsDB.contactsQuery, err = contactsDB.db.Prepare(ContactsQuery); err != nil {
 			return nil, err
 		}
 	}
+	contactsDB.db.SetMaxOpenConns(1)
 	return contactsDB, nil
 }
 
