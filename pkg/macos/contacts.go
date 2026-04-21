@@ -39,7 +39,7 @@ func createAndPrepareContactsDB(path string) (contactsDB *ContactsDB, err error)
 			return nil, err
 		}
 	}
-	contactsDB.db.SetMaxOpenConns(1)
+	// contactsDB.db.SetMaxOpenConns(1)
 	return contactsDB, nil
 }
 

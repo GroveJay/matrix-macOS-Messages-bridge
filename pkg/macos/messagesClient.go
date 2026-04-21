@@ -324,7 +324,7 @@ func openChatDB() (*sql.DB, string, error) {
 	}
 	path = filepath.Join(path, "Library", "Messages", "chat.db")
 	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?mode=ro&_query_only=true", path))
-	db.SetMaxOpenConns(1)
+	// db.SetMaxOpenConns(1)
 	return db, path, err
 }
 
